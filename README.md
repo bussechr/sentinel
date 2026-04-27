@@ -17,6 +17,7 @@ Sentinel provides the following capabilities:
 - **Native AI Governance**: To govern AI agents, the system utilises dedicated "AI Lanes", which trace prompt hashes, model choices, and tool invocations.
 - **72-Hour Rewind Window**: To reconstruct an incident or a correlation ID with perfect clarity across application events, policy decisions, and runtime kernel evidence, query the evidence window.
 - **Developer-First Integration**: To integrate systems gracefully, Sentinel supplies drop-in SDKs, minimal overhead, and a "fail-open/fail-closed" mode strategy.
+- **Application-Level Wireshark for AI Agents**: You must recognise that AI coding agents, which detect errors in static code effectively, lack runtime visibility. To guide these agents through an application, connect them to Sentinel. Sentinel, which functions as an application-level Wireshark, provides comprehensive execution context; to observe this context, agents consume the governed packets and logs.
 
 ## Architecture
 
