@@ -1,0 +1,51 @@
+# Example packet: high-risk invoice refund
+# Use with: sentinelctl simulate-policy --packet ./policy/examples/high-risk-refund.json
+
+{
+  "schema_version": "sentinel.packet.v1",
+  "packet_id": "pkt_example_refund",
+  "correlation_id": "corr_example_01",
+  "trace_id": "otel-trace-example",
+  "captured_at": "2026-04-26T10:15:00Z",
+  "app": {
+    "app_id": "billing-api",
+    "service": "payments",
+    "environment": "prod",
+    "version": "1.4.2"
+  },
+  "actor": {
+    "type": "service",
+    "id_hash": "sha256:actor_hash_example",
+    "identity_provider": "oidc"
+  },
+  "action": {
+    "category": "http",
+    "name": "invoice.refund.create",
+    "risk": "high",
+    "mutating": true
+  },
+  "resource": {
+    "type": "customer_record",
+    "id_hash": "sha256:resource_hash_example",
+    "tenant_hash": "sha256:tenant_hash_example"
+  },
+  "payload": {
+    "body_hash": "sha256:payload_hash_example",
+    "redaction_profile": "default-prod",
+    "object_uri": ""
+  },
+  "policy": {
+    "bundle_id": "",
+    "decision_id": "",
+    "decision": "",
+    "reason": ""
+  },
+  "ledger": {
+    "anchor_mode": "immediate",
+    "anchor_status": "queued",
+    "receipt_id": ""
+  },
+  "ai": {
+    "is_ai_related": false
+  }
+}

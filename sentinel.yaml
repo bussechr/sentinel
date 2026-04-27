@@ -1,0 +1,44 @@
+sentinel:
+  mode: guard
+  environment: prod
+  evidence_window: 72h
+  default_redaction_profile: default-prod
+
+api:
+  listen: 0.0.0.0:8443
+  mtls_required: true
+
+identity:
+  provider: spiffe
+  trust_domain: sentinel.internal
+
+policy:
+  engine: opa
+  bundle_url: https://policy-bundles.internal/sentinel/prod/bundle.tar.gz
+  decision_log: true
+  simulation_enabled: true
+
+ledger:
+  backend: cometbft
+  anchor_strategy: risk_tiered
+  fail_closed_for:
+    - high
+    - critical
+
+storage:
+  # DSN is read from the SENTINEL_POSTGRES_DSN environment variable or secret mount.
+  # Never put the DSN in this file.
+  postgres_dsn_secret: sentinel_postgres_dsn
+  object_store_bucket: sentinel-evidence
+  local_wal_path: /var/lib/sentinel/wal
+
+capture:
+  http_proxy_enabled: true
+  grpc_proxy_enabled: true
+  ai_lane_enabled: true
+  tetragon_enabled: true
+  journald_enabled: true
+
+observability:
+  otel_endpoint: otel-collector:4317
+  metrics_path: /metrics

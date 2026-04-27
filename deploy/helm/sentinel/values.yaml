@@ -1,0 +1,78 @@
+## Sentinel Helm values
+## Override these per environment.
+
+global:
+  registry: your-registry
+  imageTag: v1
+  namespace: sentinel
+
+api:
+  replicaCount: 2
+  image:
+    repository: "{{ .Values.global.registry }}/sentinel-api"
+    tag: "{{ .Values.global.imageTag }}"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  mode: guard
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    evidenceWindow: 72h
+    defaultRedactionProfile: default-prod
+    otelEndpoint: otel-collector:4317
+    policyBundleURL: http://opa:8181/v1/bundles/sentinel
+    ledgerBackend: cometbft
+    failClosedFor: [high, critical]
+
+agent:
+  enabled: true
+  image:
+    repository: "{{ .Values.global.registry }}/sentinel-agent"
+    tag: "{{ .Values.global.imageTag }}"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+chainApp:
+  enabled: true
+  image:
+    repository: "{{ .Values.global.registry }}/sentinel-chain-app"
+    tag: "{{ .Values.global.imageTag }}"
+  persistence:
+    size: 10Gi
+    storageClass: ""
+
+opa:
+  enabled: true
+  image: openpolicyagent/opa:latest-rootless
+  bundleConfigMap: sentinel-policy-bundle
+
+postgres:
+  # Set to false to use an external Postgres instance.
+  enabled: true
+  auth:
+    username: sentinel
+    database: sentinel
+    existingSecret: sentinel-postgres
+
+otelCollector:
+  enabled: true
+
+secrets:
+  # Name of an existing Kubernetes secret containing:
+  #   dsn: postgres DSN string
+  postgresDSNSecret: sentinel-postgres
+
+mtls:
+  enabled: false  # Enable in production with cert-manager

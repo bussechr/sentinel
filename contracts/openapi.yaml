@@ -1,0 +1,563 @@
+openapi: "3.1.0"
+info:
+  title: Sentinel API
+  version: "1.0.0"
+  description: |
+    Sentinel is a governed application packet sentinel.
+    Every application event — HTTP request, AI call, database write, secret access —
+    is captured as a governance packet, evaluated against policy, and anchored to
+    a private chain as tamper-evident proof.
+
+servers:
+  - url: https://sentinel-api.internal:8443
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: apps
+    description: Application registration
+  - name: packets
+    description: Governance packet intake and authorization
+  - name: ai
+    description: AI traceability lane
+  - name: ledger
+    description: Chain anchoring and receipt verification
+  - name: evidence
+    description: 72-hour rolling evidence window
+  - name: policy
+    description: Policy simulation
+  - name: ops
+    description: Health and metrics
+
+paths:
+
+  # ─── App registration ───────────────────────────────────────────────────────
+
+  /v1/apps/register:
+    post:
+      tags: [apps]
+      operationId: registerApp
+      summary: Register an application with Sentinel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAppRequest"
+      responses:
+        "201":
+          description: App registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterAppResponse"
+        "409":
+          description: App already registered
+
+  # ─── Packets ────────────────────────────────────────────────────────────────
+
+  /v1/packets:
+    post:
+      tags: [packets]
+      operationId: ingestPacket
+      summary: Ingest a governance packet (fire-and-forget)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Packet"
+      responses:
+        "202":
+          description: Packet accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PacketAcceptedResponse"
+
+  /v1/packets/authorize:
+    post:
+      tags: [packets]
+      operationId: authorizePacket
+      summary: Authorize a governed action and receive a decision synchronously
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeRequest"
+      responses:
+        "200":
+          description: Decision returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "403":
+          description: Action denied
+
+  /v1/packets/{packetId}:
+    get:
+      tags: [packets]
+      operationId: getPacket
+      summary: Retrieve a governance packet by ID
+      parameters:
+        - name: packetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Packet found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Packet"
+        "404":
+          description: Packet not found
+
+  # ─── AI lane ────────────────────────────────────────────────────────────────
+
+  /v1/ai/trace:
+    post:
+      tags: [ai]
+      operationId: traceAI
+      summary: Record an AI model call trace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AITraceRequest"
+      responses:
+        "202":
+          description: AI trace recorded
+
+  /v1/ai/authorize:
+    post:
+      tags: [ai]
+      operationId: authorizeAI
+      summary: Authorize an AI model call before execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIAuthorizeRequest"
+      responses:
+        "200":
+          description: AI decision returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+
+  /v1/ai/result:
+    post:
+      tags: [ai]
+      operationId: recordAIResult
+      summary: Record the result of a previously authorized AI call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIResultRequest"
+      responses:
+        "202":
+          description: AI result recorded
+
+  # ─── Ledger ─────────────────────────────────────────────────────────────────
+
+  /v1/ledger/anchor:
+    post:
+      tags: [ledger]
+      operationId: anchorPacket
+      summary: Request immediate chain anchoring for a packet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                packet_id:
+                  type: string
+      responses:
+        "202":
+          description: Anchor request queued
+
+  /v1/ledger/receipts/{packetId}:
+    get:
+      tags: [ledger]
+      operationId: getReceipt
+      summary: Get the chain receipt for a packet
+      parameters:
+        - name: packetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Receipt found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipt"
+
+  /v1/ledger/verify/{receiptId}:
+    get:
+      tags: [ledger]
+      operationId: verifyReceipt
+      summary: Verify a receipt against the chain
+      parameters:
+        - name: receiptId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResult"
+
+  # ─── Evidence ───────────────────────────────────────────────────────────────
+
+  /v1/evidence/window:
+    get:
+      tags: [evidence]
+      operationId: queryEvidenceWindow
+      summary: Query the operational evidence window (max 72h)
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: app_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Evidence segments in window
+        "400":
+          description: Window exceeds 72h limit
+
+  /v1/evidence/export:
+    post:
+      tags: [evidence]
+      operationId: exportEvidence
+      summary: Export signed evidence bundle for a correlation ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "202":
+          description: Export started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportManifest"
+
+  /v1/evidence/rewind/{correlationId}:
+    get:
+      tags: [evidence]
+      operationId: rewindEvidence
+      summary: Reconstruct evidence for a correlation ID
+      parameters:
+        - name: correlationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "72h"
+      responses:
+        "200":
+          description: Rewind result
+
+  # ─── Policy ─────────────────────────────────────────────────────────────────
+
+  /v1/policy/bundles:
+    get:
+      tags: [policy]
+      operationId: listBundles
+      summary: List active and recent policy bundles
+      responses:
+        "200":
+          description: Bundle list
+
+  /v1/policy/simulate:
+    post:
+      tags: [policy]
+      operationId: simulatePolicy
+      summary: Preview policy decisions with a proposed bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulateRequest"
+      responses:
+        "200":
+          description: Simulation result
+
+  # ─── Ops ────────────────────────────────────────────────────────────────────
+
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: healthz
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Healthy
+
+  /readyz:
+    get:
+      tags: [ops]
+      operationId: readyz
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Not ready
+
+  /metrics:
+    get:
+      tags: [ops]
+      operationId: metrics
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Metrics text
+
+components:
+  schemas:
+
+    RegisterAppRequest:
+      type: object
+      required: [app_id, service, environment, owner, mode]
+      properties:
+        app_id: { type: string }
+        service: { type: string }
+        environment: { type: string }
+        owner: { type: string }
+        mode:
+          type: string
+          enum: [observe, guard, enforce]
+        risk_tier:
+          type: string
+          enum: [low, medium, high, critical]
+        allowed_categories:
+          type: array
+          items: { type: string }
+
+    RegisterAppResponse:
+      type: object
+      properties:
+        app_id: { type: string }
+        signing_key_ref: { type: string }
+        registered_at: { type: string, format: date-time }
+
+    AuthorizeRequest:
+      type: object
+      required: [app_id, actor_type, action_name, category, risk, mutating, payload_hash]
+      properties:
+        app_id: { type: string }
+        actor_type:
+          type: string
+          enum: [human, service, agent, model, system]
+        action_name: { type: string }
+        category: { type: string }
+        risk:
+          type: string
+          enum: [low, medium, high, critical]
+        mutating: { type: boolean }
+        resource_type: { type: string }
+        payload_hash: { type: string }
+        correlation_id: { type: string }
+        trace_id: { type: string }
+
+    AuthorizeResponse:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [allow, warn, deny, escalate]
+        decision_id: { type: string }
+        packet_id: { type: string }
+        ledger_required: { type: boolean }
+        receipt_status: { type: string }
+
+    Packet:
+      type: object
+      properties:
+        schema_version: { type: string }
+        packet_id: { type: string }
+        correlation_id: { type: string }
+        trace_id: { type: string }
+        captured_at: { type: string, format: date-time }
+        app:
+          type: object
+          properties:
+            app_id: { type: string }
+            service: { type: string }
+            environment: { type: string }
+            version: { type: string }
+        actor:
+          type: object
+          properties:
+            type: { type: string }
+            id_hash: { type: string }
+            identity_provider: { type: string }
+        action:
+          type: object
+          properties:
+            category: { type: string }
+            name: { type: string }
+            risk: { type: string }
+            mutating: { type: boolean }
+        resource:
+          type: object
+          properties:
+            type: { type: string }
+            id_hash: { type: string }
+            tenant_hash: { type: string }
+        payload:
+          type: object
+          properties:
+            body_hash: { type: string }
+            redaction_profile: { type: string }
+            object_uri: { type: string }
+        policy:
+          type: object
+          properties:
+            bundle_id: { type: string }
+            decision_id: { type: string }
+            decision: { type: string }
+            reason: { type: string }
+        ledger:
+          type: object
+          properties:
+            anchor_mode: { type: string }
+            anchor_status: { type: string }
+            receipt_id: { type: string }
+        ai:
+          type: object
+          properties:
+            is_ai_related: { type: boolean }
+            model_id_hash: { type: string }
+            prompt_hash: { type: string }
+            response_hash: { type: string }
+            tool_call_count: { type: integer }
+
+    PacketAcceptedResponse:
+      type: object
+      properties:
+        packet_id: { type: string }
+        status: { type: string }
+
+    Receipt:
+      type: object
+      properties:
+        receipt_id: { type: string }
+        packet_id: { type: string }
+        packet_hash: { type: string }
+        decision_hash: { type: string }
+        status: { type: string }
+        chain_tx_id: { type: string }
+        chain_height: { type: integer }
+        issued_at: { type: string, format: date-time }
+
+    VerifyResult:
+      type: object
+      properties:
+        packet_id: { type: string }
+        receipt_id: { type: string }
+        local_hash: { type: string }
+        chain_hash: { type: string }
+        hash_match: { type: boolean }
+        verified: { type: boolean }
+        failure_reason: { type: string }
+
+    ExportRequest:
+      type: object
+      required: [correlation_id, redaction_profile]
+      properties:
+        correlation_id: { type: string }
+        redaction_profile: { type: string }
+
+    ExportManifest:
+      type: object
+      properties:
+        manifest_id: { type: string }
+        correlation_id: { type: string }
+        redaction_profile: { type: string }
+        segment_ids:
+          type: array
+          items: { type: string }
+        manifest_hash: { type: string }
+        signature: { type: string }
+        exported_at: { type: string, format: date-time }
+
+    SimulateRequest:
+      type: object
+      properties:
+        proposed_bundle_url: { type: string }
+        packet: { $ref: "#/components/schemas/Packet" }
+
+    AITraceRequest:
+      type: object
+      properties:
+        app_id: { type: string }
+        correlation_id: { type: string }
+        model_id_hash: { type: string }
+        prompt_hash: { type: string }
+        tool_call_count: { type: integer }
+
+    AIAuthorizeRequest:
+      type: object
+      properties:
+        app_id: { type: string }
+        correlation_id: { type: string }
+        model_id_hash: { type: string }
+        prompt_hash: { type: string }
+
+    AIResultRequest:
+      type: object
+      properties:
+        app_id: { type: string }
+        correlation_id: { type: string }
+        packet_id: { type: string }
+        response_hash: { type: string }
+        tool_call_count: { type: integer }
+
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+    mTLS:
+      type: mutualTLS
+
+security:
+  - BearerToken: []

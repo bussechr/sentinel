@@ -1,0 +1,161 @@
+// Package postgres — extended store methods for API handlers, receipts,
+// AI traces, evidence segments, and policy bundles.
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/your-org/sentinel/internal/core"
+	"github.com/your-org/sentinel/internal/evidence"
+)
+
+// ─── Receipts ────────────────────────────────────────────────────────────────
+
+// InsertReceipt stores a chain receipt.
+func (s *Store) InsertReceipt(ctx context.Context, r *core.Receipt) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO receipts (receipt_id, packet_id, packet_hash, decision_hash,
+		    policy_bundle_hash, app_id, risk, anchor_mode, status,
+		    chain_tx_id, chain_height, issued_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT (receipt_id) DO NOTHING`,
+		r.ReceiptID, r.PacketID, r.PacketHash, r.DecisionHash,
+		r.PolicyBundleHash, r.AppID, string(r.Risk), string(r.AnchorMode),
+		string(r.Status), r.ChainTransactionID, r.ChainHeight, r.IssuedAt,
+	)
+	return err
+}
+
+// GetReceiptByPacketID retrieves the most recent receipt for a packet.
+func (s *Store) GetReceiptByPacketID(ctx context.Context, packetID string) (*core.Receipt, error) {
+	var r core.Receipt
+	err := s.pool.QueryRow(ctx, `
+		SELECT receipt_id, packet_id, packet_hash, decision_hash,
+		       policy_bundle_hash, app_id, risk, anchor_mode,
+		       status, chain_tx_id, chain_height, issued_at, verified_at
+		FROM receipts WHERE packet_id = $1 ORDER BY issued_at DESC LIMIT 1`,
+		packetID,
+	).Scan(
+		&r.ReceiptID, &r.PacketID, &r.PacketHash, &r.DecisionHash,
+		&r.PolicyBundleHash, &r.AppID, &r.Risk, &r.AnchorMode,
+		&r.Status, &r.ChainTransactionID, &r.ChainHeight, &r.IssuedAt, &r.VerifiedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: get receipt for packet %q: %w", packetID, err)
+	}
+	return &r, nil
+}
+
+// ─── AI Traces ───────────────────────────────────────────────────────────────
+
+// AITraceRecord is the minimal data needed to persist an AI trace.
+type AITraceRecord struct {
+	AppID         string
+	CorrelationID string
+	ModelIDHash   string
+	PromptHash    string
+	ToolCallCount int
+}
+
+// InsertAITrace persists an AI trace record.
+func (s *Store) InsertAITrace(ctx context.Context, traceID string, req *AITraceRecord) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO ai_traces (trace_id, packet_id, correlation_id, app_id,
+		    model_id_hash, prompt_hash, tool_call_count, decision, traced_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
+		traceID, "", req.CorrelationID, req.AppID,
+		req.ModelIDHash, req.PromptHash, req.ToolCallCount, string(core.DecisionAllow),
+	)
+	return err
+}
+
+// ─── Evidence Segments ───────────────────────────────────────────────────────
+
+// InsertSegment stores an evidence segment.
+func (s *Store) InsertSegment(ctx context.Context, seg *evidence.Segment) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO evidence_segments (segment_id, app_id, node_id, from_ts, to_ts,
+		    record_count, segment_hash, object_uri, redaction_profile,
+		    chain_anchor_id, collector_status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		seg.SegmentID, seg.AppID, seg.NodeID, seg.FromTS, seg.ToTS,
+		seg.RecordCount, seg.SegmentHash, seg.ObjectURI, seg.RedactionProfile,
+		seg.ChainAnchorID, seg.CollectorStatus,
+	)
+	return err
+}
+
+// QuerySegments returns evidence segments for an app within the time window.
+func (s *Store) QuerySegments(ctx context.Context, appID string, from, to time.Time) ([]*evidence.Segment, error) {
+	query := `SELECT segment_id, app_id, node_id, from_ts, to_ts,
+	          record_count, segment_hash, object_uri, redaction_profile,
+	          chain_anchor_id, collector_status
+	          FROM evidence_segments
+	          WHERE from_ts >= $1 AND to_ts <= $2`
+	args := []interface{}{from, to}
+	if appID != "" {
+		query += " AND app_id = $3"
+		args = append(args, appID)
+	}
+	query += " ORDER BY from_ts DESC"
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*evidence.Segment
+	for rows.Next() {
+		var seg evidence.Segment
+		if err := rows.Scan(
+			&seg.SegmentID, &seg.AppID, &seg.NodeID, &seg.FromTS, &seg.ToTS,
+			&seg.RecordCount, &seg.SegmentHash, &seg.ObjectURI, &seg.RedactionProfile,
+			&seg.ChainAnchorID, &seg.CollectorStatus,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, &seg)
+	}
+	return out, rows.Err()
+}
+
+// ─── Policy Bundles ──────────────────────────────────────────────────────────
+
+// PolicyBundle is a row from config_revisions.
+type PolicyBundle struct {
+	RevisionID string    `json:"revision_id"`
+	BundleID   string    `json:"bundle_id"`
+	BundleHash string    `json:"bundle_hash"`
+	BundleURL  string    `json:"bundle_url"`
+	PromotedBy string    `json:"promoted_by"`
+	PromotedAt time.Time `json:"promoted_at"`
+	Active     bool      `json:"active"`
+}
+
+// ListPolicyBundles returns all policy bundle revisions.
+func (s *Store) ListPolicyBundles(ctx context.Context) ([]*PolicyBundle, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT revision_id, bundle_id, bundle_hash, bundle_url,
+		       COALESCE(promoted_by,''), promoted_at, active
+		FROM config_revisions ORDER BY promoted_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*PolicyBundle
+	for rows.Next() {
+		var b PolicyBundle
+		if err := rows.Scan(
+			&b.RevisionID, &b.BundleID, &b.BundleHash, &b.BundleURL,
+			&b.PromotedBy, &b.PromotedAt, &b.Active,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, &b)
+	}
+	return out, rows.Err()
+}

@@ -1,0 +1,64 @@
+---
+# Sentinel Secrets — never commit actual values.
+# In production, use external-secrets-operator or Vault to populate these.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sentinel-postgres
+type: Opaque
+stringData:
+  dsn: "postgresql://sentinel:CHANGE_ME@postgres:5432/sentinel?sslmode=require"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sentinel-signing-key
+type: Opaque
+stringData:
+  api_signing_key: "CHANGE_ME_base64_ed25519_private_key"
+  chain_signing_key: "CHANGE_ME_base64_ed25519_private_key"
+---
+# ConfigMap — no secrets in here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentinel-config
+data:
+  sentinel.yaml: |
+    sentinel:
+      mode: guard
+      environment: prod
+      evidence_window: 72h
+      default_redaction_profile: default-prod
+    api:
+      listen: 0.0.0.0:8080
+      mtls_required: false
+    policy:
+      engine: opa
+      bundle_url: http://opa:8181/v1/bundles/sentinel
+      decision_log: true
+    ledger:
+      backend: cometbft
+      anchor_strategy: risk_tiered
+      fail_closed_for: [high, critical]
+    observability:
+      otel_endpoint: otel-collector:4317
+      metrics_path: /metrics
+---
+# NetworkPolicy — sentinel-api may only receive traffic from known sources.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinel-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: sentinel-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}  # All pods in the same namespace
+      ports:
+        - protocol: TCP
+          port: 8080

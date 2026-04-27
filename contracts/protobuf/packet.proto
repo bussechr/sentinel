@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package sentinel.packet.v1;
+
+option go_package = "github.com/your-org/sentinel/contracts/protobuf/packet/v1";
+
+import "google/protobuf/timestamp.proto";
+
+// Packet is the canonical governance event envelope.
+// All integration paths (HTTP, gRPC, SDK, proxy) emit this structure.
+// Field mapping mirrors sentinel.packet.v1 JSON schema exactly.
+message Packet {
+  string schema_version = 1;
+  string packet_id       = 2;
+  string correlation_id  = 3;
+  string trace_id        = 4;
+  google.protobuf.Timestamp captured_at = 5;
+
+  AppContext  app      = 6;
+  Actor       actor    = 7;
+  Action      action   = 8;
+  Resource    resource = 9;
+  Payload     payload  = 10;
+  PolicyRecord policy  = 11;
+  LedgerRecord ledger  = 12;
+  AIRecord    ai       = 13;
+}
+
+message AppContext {
+  string app_id      = 1;
+  string service     = 2;
+  string environment = 3;
+  string version     = 4;
+}
+
+message Actor {
+  string type              = 1;
+  string id_hash           = 2;
+  string identity_provider = 3;
+}
+
+message Action {
+  string category = 1;
+  string name     = 2;
+  string risk     = 3;
+  bool   mutating = 4;
+}
+
+message Resource {
+  string type        = 1;
+  string id_hash     = 2;
+  string tenant_hash = 3;
+}
+
+message Payload {
+  string body_hash          = 1;
+  string redaction_profile  = 2;
+  string object_uri         = 3;
+}
+
+message PolicyRecord {
+  string bundle_id   = 1;
+  string decision_id = 2;
+  string decision    = 3;
+  string reason      = 4;
+}
+
+message LedgerRecord {
+  string anchor_mode   = 1;
+  string anchor_status = 2;
+  string receipt_id    = 3;
+}
+
+message AIRecord {
+  bool   is_ai_related   = 1;
+  string model_id_hash   = 2;
+  string prompt_hash     = 3;
+  string response_hash   = 4;
+  int32  tool_call_count = 5;
+}
+
+// AuthorizeRequest is the synchronous decision request.
+message AuthorizeRequest {
+  string app_id        = 1;
+  string actor_type    = 2;
+  string action_name   = 3;
+  string category      = 4;
+  string risk          = 5;
+  bool   mutating      = 6;
+  string resource_type = 7;
+  string payload_hash  = 8;
+  string correlation_id = 9;
+  string trace_id      = 10;
+}
+
+// AuthorizeResponse is returned by the synchronous authorize endpoint.
+message AuthorizeResponse {
+  string decision        = 1;
+  string decision_id     = 2;
+  string packet_id       = 3;
+  bool   ledger_required = 4;
+  string receipt_status  = 5;
+  string reason          = 6;
+}
+
+// PacketService is the gRPC face of the Sentinel packet API.
+service PacketService {
+  rpc Ingest(Packet) returns (IngestResponse);
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+  rpc Get(GetPacketRequest) returns (Packet);
+}
+
+message IngestResponse {
+  string packet_id = 1;
+  string status    = 2;
+}
+
+message GetPacketRequest {
+  string packet_id = 1;
+}

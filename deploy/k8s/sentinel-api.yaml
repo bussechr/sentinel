@@ -1,0 +1,78 @@
+---
+# sentinel-api Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-api
+  labels:
+    app: sentinel-api
+    component: control-plane
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sentinel-api
+  template:
+    metadata:
+      labels:
+        app: sentinel-api
+    spec:
+      serviceAccountName: sentinel-api
+      containers:
+        - name: sentinel-api
+          image: your-registry/sentinel-api:v1
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SENTINEL_CONFIG_FILE
+              value: /etc/sentinel/sentinel.yaml
+            - name: SENTINEL_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-postgres
+                  key: dsn
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sentinel
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: sentinel-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sentinel-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-api
+spec:
+  selector:
+    app: sentinel-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

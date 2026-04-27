@@ -1,0 +1,14 @@
+apiVersion: v2
+name: sentinel
+description: Sentinel — governed application packet sentinel
+type: application
+version: 0.1.0
+appVersion: "v1"
+keywords:
+  - sentinel
+  - governance
+  - audit
+  - compliance
+  - ai-safety
+maintainers:
+  - name: platform-team

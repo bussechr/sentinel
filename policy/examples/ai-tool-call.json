@@ -1,0 +1,38 @@
+# Example packet: AI model call with tool invocations
+{
+  "schema_version": "sentinel.packet.v1",
+  "packet_id": "pkt_example_ai",
+  "correlation_id": "corr_example_02",
+  "captured_at": "2026-04-26T10:16:00Z",
+  "app": {
+    "app_id": "billing-agent",
+    "service": "ai",
+    "environment": "prod",
+    "version": "1.0.0"
+  },
+  "actor": {
+    "type": "agent",
+    "id_hash": "sha256:agent_hash_example",
+    "identity_provider": "spiffe"
+  },
+  "action": {
+    "category": "ai",
+    "name": "ai.model.call",
+    "risk": "medium",
+    "mutating": false
+  },
+  "resource": {
+    "type": "llm_session"
+  },
+  "payload": {
+    "body_hash": "sha256:prompt_payload_hash",
+    "redaction_profile": "default-prod"
+  },
+  "ai": {
+    "is_ai_related": true,
+    "model_id_hash": "sha256:gpt4o_model_hash",
+    "prompt_hash": "sha256:prompt_content_hash",
+    "response_hash": "",
+    "tool_call_count": 2
+  }
+}

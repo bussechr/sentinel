@@ -1,0 +1,72 @@
+---
+# sentinel-chain-app StatefulSet — CometBFT ABCI application
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentinel-chain-app
+  labels:
+    app: sentinel-chain-app
+    component: chain
+spec:
+  serviceName: sentinel-chain-app
+  replicas: 1  # Single-node for dev; increase to 4+ for BFT in production
+  selector:
+    matchLabels:
+      app: sentinel-chain-app
+  template:
+    metadata:
+      labels:
+        app: sentinel-chain-app
+    spec:
+      containers:
+        - name: sentinel-chain-app
+          image: your-registry/sentinel-chain-app:v1
+          ports:
+            - containerPort: 26658
+              name: abci
+          volumeMounts:
+            - name: chain-data
+              mountPath: /var/lib/sentinel/chain
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+        - name: cometbft
+          image: cometbft/cometbft:v0.38.9
+          command:
+            - cometbft
+            - node
+            - --proxy_app=tcp://localhost:26658
+          ports:
+            - containerPort: 26656
+              name: p2p
+            - containerPort: 26657
+              name: rpc
+          volumeMounts:
+            - name: chain-data
+              mountPath: /cometbft
+  volumeClaimTemplates:
+    - metadata:
+        name: chain-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-chain-app
+spec:
+  clusterIP: None  # Headless for StatefulSet DNS
+  selector:
+    app: sentinel-chain-app
+  ports:
+    - name: abci
+      port: 26658
+    - name: rpc
+      port: 26657

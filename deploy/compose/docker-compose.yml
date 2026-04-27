@@ -1,0 +1,157 @@
+# Sentinel dev stack — Docker Compose
+# Brings up: Postgres, MinIO (object store), OPA, OTel Collector,
+#            sentinel-api, sentinel-agent, CometBFT (single-node dev chain).
+#
+# Usage:
+#   docker compose -f deploy/compose/docker-compose.yml up
+#
+# Secrets are mounted as files. Do not use plain environment variables for DSNs
+# or signing keys in production. This compose file uses Docker secrets for the
+# Postgres DSN as a demonstration.
+
+version: "3.9"
+
+secrets:
+  sentinel_postgres_dsn:
+    file: ./secrets/postgres_dsn.txt
+
+services:
+
+  # ─── Postgres ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel_dev
+      POSTGRES_DB: sentinel
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../internal/store/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── MinIO (object store) ──────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sentineladmin
+      MINIO_ROOT_PASSWORD: sentineladmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── OPA ──────────────────────────────────────────────────────────────────
+  opa:
+    image: openpolicyagent/opa:latest-rootless
+    restart: unless-stopped
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --bundle
+      - /policy/bundles/default
+      - --log-format=json
+    ports:
+      - "8181:8181"
+    volumes:
+      - ../../policy/bundles:/policy/bundles:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── OpenTelemetry Collector ───────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    command: ["--config=/etc/otel-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+    volumes:
+      - ./otel-config.yaml:/etc/otel-config.yaml:ro
+
+  # ─── CometBFT (single-node dev chain) ─────────────────────────────────────
+  cometbft:
+    image: cometbft/cometbft:v0.38.9
+    restart: unless-stopped
+    command: node --proxy_app=tcp://sentinel-chain-app:26658
+    ports:
+      - "26656:26656"  # P2P
+      - "26657:26657"  # RPC
+    volumes:
+      - cometbft_data:/cometbft
+
+  # ─── sentinel-chain-app ───────────────────────────────────────────────────
+  sentinel-chain-app:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.chain-app
+    restart: unless-stopped
+    environment:
+      SENTINEL_NODE_ID: chain-app-dev
+    ports:
+      - "26658:26658"  # ABCI socket
+    depends_on:
+      - cometbft
+
+  # ─── sentinel-api ─────────────────────────────────────────────────────────
+  sentinel-api:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      SENTINEL_CONFIG_FILE: /etc/sentinel/sentinel.yaml
+    secrets:
+      - sentinel_postgres_dsn
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../../sentinel.dev.yaml:/etc/sentinel/sentinel.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opa:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── sentinel-agent ───────────────────────────────────────────────────────
+  sentinel-agent:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.agent
+    restart: unless-stopped
+    environment:
+      SENTINEL_API_ENDPOINT: http://sentinel-api:8080
+    depends_on:
+      sentinel-api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  minio_data:
+  cometbft_data:

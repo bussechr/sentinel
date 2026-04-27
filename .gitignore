@@ -1,0 +1,29 @@
+# Sentinel .gitignore
+
+# Secrets — never commit
+deploy/compose/secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+sentinel_postgres_dsn*
+
+# Go build artefacts
+/bin/
+/dist/
+*.exe
+
+# Go modules download cache
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Policy bundle tarballs
+policy/bundles/*.tar.gz

@@ -1,0 +1,41 @@
+sentinel:
+  mode: observe
+  environment: dev
+  evidence_window: 72h
+  default_redaction_profile: default-dev
+
+api:
+  listen: 0.0.0.0:8080
+  mtls_required: false
+
+identity:
+  provider: local
+  trust_domain: sentinel.local
+
+policy:
+  engine: opa
+  bundle_url: file:///policy/bundles/default
+  decision_log: true
+  simulation_enabled: true
+
+ledger:
+  backend: cometbft
+  anchor_strategy: risk_tiered
+  fail_closed_for:
+    - critical
+
+storage:
+  postgres_dsn_secret: sentinel_postgres_dsn
+  object_store_bucket: sentinel-evidence
+  local_wal_path: /var/lib/sentinel/wal
+
+capture:
+  http_proxy_enabled: true
+  grpc_proxy_enabled: false
+  ai_lane_enabled: true
+  tetragon_enabled: false
+  journald_enabled: false
+
+observability:
+  otel_endpoint: otel-collector:4317
+  metrics_path: /metrics
