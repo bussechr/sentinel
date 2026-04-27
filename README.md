@@ -1,26 +1,26 @@
 # Sentinel
 
-**The Unified Governance Moat for Modern Apps.**
+**A Superior Governance Foundation for Modern Applications**
 
-Sentinel is an open-source, fail-safe governance layer for your applications. Whether you're building a traditional REST API, an event-driven system, or the next generation of AI agents, Sentinel ensures that every critical action is policy-checked, audited, and mathematically anchored to a tamper-proof ledger.
+Sentinel, which is an open-source and fail-safe governance layer, protects your applications. It is elementary that Sentinel ensures that specific critical actions are evaluated against policy, audited, and mathematically anchored to a tamper-proof ledger.
 
-No more scattering authorization checks, audit logs, and compliance mechanisms across dozens of microservices. Integrate Sentinel once, and govern your entire application portfolio from a single control plane.
+To govern a complete application portfolio from a single control plane, one must integrate Sentinel. It is clear that this system centralises authorisation checks, audit logs, and compliance mechanisms.
 
-## Why Sentinel?
+## The Merits of Sentinel
 
-When your application processes high-risk transactions—like issuing refunds, modifying user permissions, or executing agentic AI tool calls—you need absolute certainty about *who* did *what*, *why*, and *when*. 
+To process high-risk transactions (such as issuing refunds, modifying user permissions, or executing agentic AI tool calls), it is imperative that one possesses absolute certainty regarding the identities of actors and their actions.
 
-Sentinel provides:
+Sentinel provides the following capabilities:
 
-- **Unified Policy Enforcement**: Write policies once in Rego (OPA) and enforce them universally across your stack.
-- **Immutable Evidence**: High-risk actions are automatically chained and anchored to a CometBFT ledger, making your operational history tamper-evident.
-- **Native AI Governance**: Dedicated "AI Lanes" to trace prompt hashes, model choices, and tool invocations, ensuring your AI agents don't go rogue.
-- **72-Hour Rewind Window**: Instantly reconstruct any incident or correlation ID with perfect clarity across application events, policy decisions, and runtime kernel evidence.
-- **Developer-First Integration**: Drop-in SDKs, minimal overhead, and a "fail-open/fail-closed" mode strategy so you can start observing today and enforce tomorrow.
+- **Unified Policy Enforcement**: To enforce policies universally across a stack, one writes them in Rego (OPA).
+- **Immutable Evidence**: Sentinel, which anchors high-risk actions to a CometBFT ledger, renders an operational history tamper-evident.
+- **Native AI Governance**: To govern AI agents, the system utilises dedicated "AI Lanes", which trace prompt hashes, model choices, and tool invocations.
+- **72-Hour Rewind Window**: To reconstruct an incident or a correlation ID with perfect clarity across application events, policy decisions, and runtime kernel evidence, one queries the evidence window.
+- **Developer-First Integration**: To integrate systems gracefully, Sentinel supplies drop-in SDKs, minimal overhead, and a "fail-open/fail-closed" mode strategy.
 
 ## Architecture
 
-Sentinel runs as a decoupled control plane. It separates the application logic from governance, policy evaluation, and immutable storage.
+Sentinel, which operates as a decoupled control plane, distinguishes application logic from governance, policy evaluation, and immutable storage.
 
 ### High-Level Component Topology
 
@@ -63,9 +63,9 @@ graph TD
     Queue -- "Batch/Immediate Anchor" --> BFT
 ```
 
-### Authorization Flow (Guard Mode)
+### Authorisation Flow (Guard Mode)
 
-When an application attempts a high-risk action, it consults Sentinel before proceeding. Sentinel evaluates the risk, checks the policy, stores the evidence, and anchors the proof to the ledger.
+To attempt a high-risk action, an application consults Sentinel. Sentinel, which evaluates the risk, inspects the policy, stores the evidence, and anchors the proof to the ledger.
 
 ```mermaid
 sequenceDiagram
@@ -99,7 +99,7 @@ sequenceDiagram
 
 ### Incident Rewind Flow
 
-When investigating an incident, Sentinel correlates data across all persistence layers to reconstruct exactly what happened during the 72-hour operational window.
+To investigate an incident, Sentinel correlates data across various persistence layers; it is apparent that this process reconstructs exact events within the 72-hour operational window.
 
 ```mermaid
 graph LR
@@ -118,9 +118,9 @@ graph LR
     Compiler --> |"Reconstructed Evidence Timeline"| User
 ```
 
-## Quick Integration
+## Rapid Integration
 
-Integrating Sentinel is as simple as adding a middleware or making a single REST call before your high-risk operations.
+To integrate Sentinel, an engineer adds a middleware or invokes a singular REST call.
 
 ### Go SDK Example
 ```go
@@ -145,7 +145,8 @@ mux.Handle("/refund", client.HTTPMiddleware(
 ```
 
 ### Python / AI Integration Example (Claude/Anthropic)
-Governing AI models requires knowing what prompt was sent and what tools were used. Sentinel handles this effortlessly:
+
+To govern AI models, one must know that specific prompts were dispatched and specific tools were utilised. Sentinel, which handles this effortlessly, provides a robust interface:
 
 ```python
 decision = sentinel_ai_authorize(
@@ -167,16 +168,16 @@ sentinel_ai_result(
 )
 ```
 
-## Getting Started
+## Initialisation
 
-Ready to lock down your stack?
+To secure an infrastructure, one follows these steps:
 
-1. **Deploy Sentinel**: Run it locally using Docker Compose, or deploy to Kubernetes using our production-ready Helm charts.
-2. **Register Your App**: Use `sentinelctl` to issue identity keys for your service.
-3. **Integrate**: Drop the SDK into your Go app, Node.js API, or Python AI Agent.
+1. **Deploy Sentinel**: To run the service locally, one uses Docker Compose; to deploy to Kubernetes, one uses our production-ready Helm charts.
+2. **Register Your Application**: To issue identity keys for a service, an administrator uses `sentinelctl`.
+3. **Integrate**: To connect systems, a developer drops the SDK into a Go application, a Node.js API, or a Python AI Agent.
 
-Check out the [Installation Guide](./docs/runbooks/01-installation.md) and [Integration Runbook](./docs/runbooks/04-app-integration.md) to get started.
+To proceed, one consults the Installation Guide and the Integration Runbook.
 
-## Community & Support
+## Community and Support
 
-Sentinel is built for developers who care about security, compliance, and sanity. Feel free to open issues, submit PRs, or check out our `/examples` folder for integrations with Go, Express, FastAPI, and Anthropic.
+Sentinel, which serves developers, prioritises security, compliance, and structural integrity. To contribute, one opens issues, submits PRs, or explores our `/examples` folder (which contains integrations for Go, Express, FastAPI, and Anthropic).
