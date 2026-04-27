@@ -48,7 +48,7 @@ graph TD
     end
 
     subgraph "Node Level"
-        Agent[Sentinel Agent\n(Tetragon/eBPF)]
+        Agent["Sentinel Agent<br>(Tetragon/eBPF)"]
     end
 
     AppA -- "SDK (authorize)" --> API
