@@ -1,11 +1,12 @@
 // Package observability — Prometheus-compatible metrics.
 //
 // Sentinel exposes the following key metrics:
-//   sentinel_packets_total{app_id, risk, decision, mode}  — counter
-//   sentinel_policy_eval_duration_seconds{app_id}         — histogram
-//   sentinel_anchor_queue_depth                           — gauge
-//   sentinel_evidence_window_hours                        — gauge
-//   sentinel_chain_height                                 — gauge
+//
+//	sentinel_packets_total{app_id, risk, decision, mode}  — counter
+//	sentinel_policy_eval_duration_seconds{app_id}         — histogram
+//	sentinel_anchor_queue_depth                           — gauge
+//	sentinel_evidence_window_hours                        — gauge
+//	sentinel_chain_height                                 — gauge
 //
 // Metrics are emitted via OTel SDK. The OTel Collector scrapes them
 // and exports to Prometheus or any other backend.

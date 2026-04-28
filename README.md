@@ -1,139 +1,245 @@
 # Sentinel
 
-**A Superior Governance Foundation for Modern Applications**
+**A reusable governance control plane for modern applications.**
 
-Sentinel, which is an open-source and fail-safe governance layer, protects your applications. It is elementary that Sentinel ensures that specific critical actions are evaluated against policy, audited, and mathematically anchored to a tamper-proof ledger.
-
-To govern a complete application portfolio from a single control plane, integrate Sentinel. It is clear that this system centralises authorisation checks, audit logs, and compliance mechanisms.
-
-## The Merits of Sentinel
-
-To process high-risk transactions (such as issuing refunds, modifying user permissions, or executing agentic AI tool calls), it is imperative that you possess absolute certainty regarding the identities of actors and their actions.
-
-Sentinel provides the following capabilities:
-
-- **Unified Policy Enforcement**: To enforce policies universally across a stack, write them in Rego (OPA).
-- **Immutable Evidence**: Sentinel, which anchors high-risk actions to a CometBFT ledger, renders an operational history tamper-evident.
-- **Native AI Governance**: To govern AI agents, the system utilises dedicated "AI Lanes", which trace prompt hashes, model choices, and tool invocations.
-- **72-Hour Rewind Window**: To reconstruct an incident or a correlation ID with perfect clarity across application events, policy decisions, and runtime kernel evidence, query the evidence window.
-- **Developer-First Integration**: To integrate systems gracefully, Sentinel supplies drop-in SDKs, minimal overhead, and a "fail-open/fail-closed" mode strategy.
-- **Application-Level Scout for AI Agents**: You must recognise that AI coding agents, which detect errors in static code effectively, lack runtime visibility. To guide these agents through an application, connect them to Sentinel. Sentinel, which functions as an application-level Scout, provides comprehensive execution context; to observe this context, agents consume the governed packets and logs.
-
-## Architecture
-
-Sentinel, which operates as a decoupled control plane, distinguishes application logic from governance, policy evaluation, and immutable storage.
-
-### High-Level Component Topology
+Sentinel sits next to your services and AI agents. It evaluates each
+high-risk action against policy, stores tamper-evident evidence, and
+anchors a compact proof to an immutable ledger. Replace per-service
+audit/policy/anchor code with one external surface.
 
 ```mermaid
-graph TD
-    subgraph Applications
-        AppA[Go Application]
-        AppB[Python AI Agent]
-        AppC[Node.js API]
+flowchart LR
+    subgraph Apps
+        A[Go service]
+        B[Python AI agent]
+        C[Node.js / JVM]
     end
 
-    subgraph "Sentinel Control Plane"
-        API[Sentinel API]
-        OPA[OPA Policy Engine]
-        Queue[Anchor Queue]
+    subgraph Sentinel
+        G[Packet gateway]
+        AI[AI lane gate]
+        P[OPA policy engine]
+        S[Shadow diffing]
+        E[Evidence store + 72h hot index]
+        H[Cold archiver]
+        Q[Anchor queue]
+        CG[Causal graph compiler]
     end
 
-    subgraph "Data & Evidence Layer"
+    subgraph Backends
+        L1[CometBFT writer]
+        L2[Besu / QBFT writer]
+        L3[immudb writer]
+        OBJ[(S3-compatible object store)]
         PG[(Postgres)]
-        S3[(Object Store)]
     end
 
-    subgraph "Immutable Ledger"
-        BFT[CometBFT Chain]
-    end
+    A --> G
+    B --> AI
+    C --> G
 
-    subgraph "Node Level"
-        Agent["Sentinel Agent<br>(Tetragon/eBPF)"]
-    end
-
-    AppA -- "SDK (authorize)" --> API
-    AppB -- "REST (ai/trace)" --> API
-    AppC -- "HTTP Middleware" --> API
-    Agent -- "Kernel Evidence" --> API
-
-    API -- "Evaluate Policy" --> OPA
-    API -- "Store Packets/Metadata" --> PG
-    API -- "Store Payloads" --> S3
-    API -- "Enqueue Proofs" --> Queue
-    Queue -- "Batch/Immediate Anchor" --> BFT
+    G --> P
+    AI --> P
+    P --> S
+    G --> E
+    E --> Q
+    Q --> L1
+    Q --> L2
+    Q --> L3
+    E --> CG
+    E --> H
+    H --> OBJ
+    E --> PG
 ```
 
-### Authorisation Flow (Guard Mode)
+## What's in the repo
 
-To attempt a high-risk action, an application consults Sentinel. Sentinel, which evaluates the risk, inspects the policy, stores the evidence, and anchors the proof to the ledger.
+| Component | Path | What it does |
+|---|---|---|
+| `sentinel-api` | [cmd/sentinel-api](cmd/sentinel-api) | HTTP control plane — packets, AI lane, evidence, ledger, policy |
+| `sentinel-agent` | [cmd/sentinel-agent](cmd/sentinel-agent) | Node-level evidence collector hook (Tetragon/eBPF integration point) |
+| `sentinel-chain-app` | [cmd/sentinel-chain-app](cmd/sentinel-chain-app) | ABCI app for the bundled CometBFT chain |
+| `sentinelctl` | [cmd/sentinelctl](cmd/sentinelctl) | Operator CLI: doctor, register, emit, simulate, verify, rewind, export, writers, shadow-divergences |
+| Canonical packet | [internal/core](internal/core) | `sentinel.packet.v1` schema, decision and receipt types |
+| OPA engine + shadow | [internal/policy](internal/policy) | Evaluate active bundle; concurrent shadow bundle; safe-promotion check |
+| Multi-backend ledger | [internal/ledger](internal/ledger) | `Writer` registry plus real CometBFT JSON-RPC, real Besu JSON-RPC, and real immudb client backends |
+| Evidence | [internal/evidence](internal/evidence) | 72h hot index, segments, rewind, retention, hot→cold archiver |
+| Causal graph | [internal/causalgraph](internal/causalgraph) | DAG compiler over rewind output keyed by `correlation_id` |
+| AI lane gate | [internal/capture/ai](internal/capture/ai) | Header contract: machine actors must transit the AI gateway |
+| Postgres store | [internal/store/postgres](internal/store/postgres) | App registry, packets, decisions, receipts, segments, shadow log, cold archive index |
+| Object store (S3) | [internal/store/object](internal/store/object) | MinIO/S3-compatible adapter for evidence payloads and archives |
+| Go SDK | [sdk/go/sentinel](sdk/go/sentinel) | Drop-in Go middleware |
+| TypeScript SDK | [sdk/ts](sdk/ts) | Strict-mode TS for Node 20+, Bun, Workers, Deno |
+| Python SDK | [sdk/python](sdk/python) | Sync + async clients over httpx |
+| OpenAPI spec | [contracts/openapi.yaml](contracts/openapi.yaml) | Authoritative API contract |
+| Compose stack | [deploy/compose](deploy/compose) | Postgres, MinIO, OPA, OTel, CometBFT, sentinel-api/agent/chain-app |
+| Helm chart | [deploy/helm/sentinel](deploy/helm/sentinel) | Production-ready chart skeleton |
+| Sample policy | [policy/bundles/default](policy/bundles/default) | Default Rego bundle |
+
+## Capabilities
+
+- **Unified policy enforcement** in Rego/OPA, hot-reloaded from a bundle URL
+- **Native AI governance** — model and tool calls go through a dedicated
+  AI lane that requires the `X-Sentinel-AI-Route` and `X-Sentinel-AI-Actor`
+  headers; bypass attempts are rejected with HTTP 403
+- **Pluggable ledger** — the `Writer` registry holds CometBFT (default),
+  Besu/QBFT (EVM contract anchoring), and immudb (verifiable proof) backends
+  concurrently; `/v1/ledger/writers` exposes per-writer health
+- **Shadow policy diffing** — every authorise call evaluates an active bundle
+  and a candidate bundle in parallel; divergences land in `shadow_decisions`
+  for safe promotion review
+- **72-hour hot rewind window** — query packets, decisions, receipts, and
+  evidence segments by `correlation_id`; older evidence is archived to S3 with
+  a durable proof locator
+- **Causal graph compiler** — `GET /v1/evidence/causal/{correlation_id}`
+  returns a typed DAG with `first_deny`, `anchored`, `followed_by` edges
+- **Receipt enrichments** — receipts carry `correlation_id`, `evidence_root_hash`,
+  `writer_kind`, `writer_name` for KYB-style replay
+- **Drop-in SDKs** for Go, TypeScript, and Python with HTTP middleware,
+  AI lane helpers, rewind / causal graph access, and writer health
+
+## Authorise flow
+
+The synchronous decision path. Machine actors are caught by the AI gate
+*before* policy runs; the active OPA bundle and (when wired) a candidate
+shadow bundle evaluate concurrently; the writer registry fans the
+compact proof out to every configured backend.
 
 ```mermaid
 sequenceDiagram
-    participant App as Application
-    participant API as Sentinel API
-    participant OPA as Policy Engine
+    autonumber
+    participant App as Application / AI agent
+    participant API as sentinel-api
+    participant Gate as AI lane gate
+    participant OPA as OPA (active)
+    participant Sh as OPA (shadow)
     participant PG as Postgres
-    participant BFT as CometBFT Chain
+    participant Reg as Writer registry
+    participant L1 as CometBFT
+    participant L2 as Besu / QBFT
+    participant L3 as immudb
 
-    App->>API: POST /v1/packets/authorize
-    API->>API: Hash Payload & Extract Identity
-    API->>OPA: Evaluate Packet (Bundle Hash)
-    OPA-->>API: Decision (Allow/Deny) + Reason
-    API->>PG: Insert Packet & Decision Record
-    
-    alt Risk is High or Critical
-        API->>BFT: Synchronous Anchor Request
-        BFT-->>API: Ledger Receipt
-    else Risk is Low or Medium
-        API->>PG: Asynchronous Queue
-    end
-
-    API-->>App: Decision Result + Receipt ID
-    
-    alt Decision == Deny
-        App->>App: Block Action (403 Forbidden)
-    else Decision == Allow
-        App->>App: Execute Action
+    App->>API: POST /v1/packets/authorize<br/>(packet, payload_hash, correlation_id)
+    API->>Gate: verify (actor type, AI headers)
+    alt machine actor without AI lane headers
+        Gate-->>API: 403
+        API-->>App: forbidden
+    else permitted
+        Gate-->>API: ok
+        par active vs candidate (when shadow wired)
+            API->>OPA: evaluate(packet)
+            OPA-->>API: active decision
+        and
+            API->>Sh: evaluate(packet)
+            Sh-->>API: candidate decision
+        end
+        API->>PG: persist packet + decision (+ shadow row if diverged)
+        alt risk in {low, medium}
+            API->>Reg: enqueue (batch)
+        else risk in {high, critical}
+            API->>Reg: submit (synchronous)
+            par fan-out
+                Reg->>L1: submit
+                Reg->>L2: submit
+                Reg->>L3: VerifiedSet
+            end
+            Reg-->>API: receipts (anchored)
+        end
+        API-->>App: decision + packet_id + receipt_id
     end
 ```
 
-### Incident Rewind Flow
+## Rewind & causal graph
 
-To investigate an incident, Sentinel correlates data across various persistence layers; it is apparent that this process reconstructs exact events within the 72-hour operational window.
+Reconstructing what happened for one `correlation_id`. The hot index
+serves the 72-hour operational window directly; older evidence is
+served from the cold archive index, which points at the S3 manifest
+written by the archiver. Either path feeds the causal graph compiler so
+the operator UI sees a single typed DAG.
 
 ```mermaid
-graph LR
-    User[Security Operator] --> |"sentinelctl rewind\n--correlation-id X"| API[Sentinel API]
-    
-    API --> |1. Fetch App Packet| PG[(Postgres)]
-    API --> |2. Fetch Policy Reason| PG
-    API --> |3. Fetch AI Traces| PG
-    API --> |4. Fetch Kernel Signals| AgentStore[(Agent Segments)]
-    API --> |5. Verify Proof| BFT[CometBFT Ledger]
-    
-    PG --> Compiler[Rewind Engine]
-    AgentStore --> Compiler
-    BFT --> Compiler
-    
-    Compiler --> |"Reconstructed Evidence Timeline"| User
+flowchart LR
+    O[Operator / SOC] -- "sentinelctl rewind --correlation-id X" --> CTL[sentinelctl]
+    CTL -- "GET /v1/evidence/rewind/{cid}" --> API[sentinel-api]
+    CTL -- "GET /v1/evidence/causal/{cid}" --> API
+
+    API -- "1. packets, decisions, receipts (≤ 72h)" --> PG[(Postgres<br/>hot index)]
+    API -- "2. archive pointers (> 72h)" --> CIDX[(cold_archive_index)]
+    CIDX -- "object_uri" --> OBJ[(S3-compatible<br/>cold storage)]
+    OBJ -- "manifest JSON" --> API
+
+    API --> CG[Causal graph compiler]
+    CG -- "typed DAG: packet → decision → receipt → segment" --> O
+    CG -- "first_deny / anchored / followed_by" --> O
+
+    API -- "verify proofs" --> L1[CometBFT]
+    API -- "verify proofs" --> L2[Besu]
+    API -- "VerifiedGet" --> L3[immudb]
 ```
 
-## Rapid Integration
+## Quickstart
 
-To integrate Sentinel, add a middleware or invoke a singular REST call.
+### 1. Bring up the dev stack
 
-### Go SDK Example
+```bash
+make compose-up
+```
+
+This starts Postgres, MinIO, OPA, OTel Collector, CometBFT, the sentinel-api,
+sentinel-agent, and sentinel-chain-app. Migrations under
+[internal/store/migrations](internal/store/migrations) auto-apply on first run
+because the Postgres container mounts the migrations directory at
+`/docker-entrypoint-initdb.d`.
+
+If you already have your own Postgres, run migrations directly:
+
+```bash
+SENTINEL_POSTGRES_DSN=postgres://… make migrate
+```
+
+### 2. Verify the control plane
+
+```bash
+make build
+SENTINEL_API_ENDPOINT=http://localhost:8080 ./bin/sentinelctl doctor
+```
+
+You should see the four probes (`/healthz`, `/readyz`, `/v1/ledger/writers`,
+`/v1/policy/bundles`) all pass.
+
+### 3. Register an app and emit a test packet
+
+```bash
+./bin/sentinelctl register app \
+  --app-id billing-api --service billing --env dev --owner platform --mode guard
+
+./bin/sentinelctl emit-test-packet \
+  --app-id billing-api --action invoice.refund.create --risk high --mutating
+```
+
+The response includes a `packet_id` and a provisional `receipt_id`. Use those
+to walk the new endpoints:
+
+```bash
+./bin/sentinelctl verify-ledger --packet-id pkt_…
+./bin/sentinelctl rewind --correlation-id corr_… --graph
+./bin/sentinelctl writers
+./bin/sentinelctl shadow-divergences --since 1h
+```
+
+### 4. Wire your application
+
+**Go:**
+
 ```go
 import "github.com/your-org/sentinel/sdk/go/sentinel"
 
 client := sentinel.NewClient(sentinel.Config{
     Endpoint: "http://sentinel-api:8080",
     AppID:    "billing-api",
-    Mode:     sentinel.ModeGuard, 
+    Mode:     sentinel.ModeGuard,
 })
 
-// Wrap your critical endpoints with Sentinel Middleware
 mux.Handle("/refund", client.HTTPMiddleware(
     sentinel.RoutePolicy{
         ActionName: "invoice.refund.create",
@@ -145,40 +251,136 @@ mux.Handle("/refund", client.HTTPMiddleware(
 ))
 ```
 
-### Python / AI Integration Example (Claude/Anthropic)
+**TypeScript:**
 
-To govern AI models, you must know that specific prompts were dispatched and specific tools were utilised. Sentinel, which handles this effortlessly, provides a robust interface:
+```ts
+import { SentinelClient, withSentinel } from "@sentinel/sdk";
 
-```python
-decision = sentinel_ai_authorize(
-    model_id="claude-3-7-sonnet-20250219", 
-    prompt_text=prompt, 
-    correlation_id=corr_id
-)
+const sentinel = new SentinelClient({
+  endpoint: "http://sentinel-api:8080",
+  appId: "billing-api",
+  mode: "guard",
+});
 
-if decision.get("decision") == "deny":
-    raise PermissionError("AI action prevented by Sentinel.")
-
-# ... execute your Claude API call ...
-
-sentinel_ai_result(
-    packet_id=decision["packet_id"], 
-    response_text=response_text, 
-    tool_call_count=len(tools_used), 
-    correlation_id=corr_id
-)
+app.post(
+  "/refund",
+  withSentinel(sentinel, {
+    actionName: "invoice.refund.create",
+    category: "http",
+    risk: "high",
+    mutating: true,
+  }),
+  refundHandler,
+);
 ```
 
-## Initialisation
+**Python:**
 
-To secure an infrastructure, follow these steps:
+```python
+from sentinel_sdk import SentinelClient, RoutePolicy, sha256_hash
 
-1. **Deploy Sentinel**: To run the service locally, use Docker Compose; to deploy to Kubernetes, use our production-ready Helm charts.
-2. **Register Your Application**: To issue identity keys for a service, use `sentinelctl`.
-3. **Integrate**: To connect systems, drop the SDK into a Go application, a Node.js API, or a Python AI Agent.
+with SentinelClient("http://sentinel-api:8080", "billing-api", mode="guard") as s:
+    decision = s.authorize(
+        correlation_id=s.new_correlation_id(),
+        policy=RoutePolicy("invoice.refund.create", "http", "high", mutating=True),
+        payload_hash=sha256_hash(request_body),
+    )
+    if decision.decision == "deny":
+        raise PermissionError(decision.reason)
+```
 
-To proceed, consult the Installation Guide and the Integration Runbook.
+**AI lane (Python):**
 
-## Community and Support
+```python
+authz = s.ai_authorize(
+    correlation_id=corr_id,
+    model_id_hash=sha256_hash(model_id),
+    prompt_hash=sha256_hash(prompt_text),
+)
+if authz.decision == "deny":
+    raise PermissionError(authz.reason)
+# … run the model call …
+s.ai_result(corr_id, response_hash=sha256_hash(response_text), tool_call_count=n)
+```
 
-Sentinel, which serves developers, prioritises security, compliance, and structural integrity. To contribute, open issues, submit PRs, or explore our `/examples` folder (which contains integrations for Go, Express, FastAPI, and Anthropic).
+The TS and Python SDKs auto-attach the required `X-Sentinel-AI-Route` and
+`X-Sentinel-AI-Actor` headers on AI lane calls.
+
+## API surface
+
+The full surface lives in [contracts/openapi.yaml](contracts/openapi.yaml).
+The most useful endpoints in everyday use:
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/v1/apps/register` | Register an application |
+| POST | `/v1/packets/authorize` | Synchronous decision for a high-risk action |
+| POST | `/v1/packets` | Fire-and-forget packet ingest |
+| POST | `/v1/ai/authorize` | AI lane authorise (machine actors only) |
+| POST | `/v1/ai/result` | Record AI response hash and tool call count |
+| GET | `/v1/evidence/rewind/{correlationId}` | Reconstruct evidence for a correlation |
+| GET | `/v1/evidence/causal/{correlationId}` | Compiled causal DAG for a correlation |
+| GET | `/v1/ledger/receipts/{packetId}` | Latest receipt for a packet |
+| GET | `/v1/ledger/verify/{receiptId}` | Re-verify a receipt against the chain |
+| GET | `/v1/ledger/writers` | Per-writer health snapshot |
+| GET | `/v1/policy/bundles` | List policy bundle revisions |
+| POST | `/v1/policy/simulate` | Preview a candidate bundle's decision |
+| GET | `/v1/policy/shadow/divergences` | Recent shadow vs active divergences |
+| GET | `/healthz`, `/readyz` | Liveness and readiness |
+
+## Configuration
+
+Service config is YAML; see [sentinel.dev.yaml](sentinel.dev.yaml) for a
+working example. Postgres DSN and signing keys are loaded from mounted
+secrets, never from environment variables in production.
+
+Set per-process environment variables to override individual values:
+
+| Variable | Purpose |
+|---|---|
+| `SENTINEL_CONFIG_FILE` | Path to YAML config |
+| `SENTINEL_POSTGRES_DSN` | Postgres DSN (overrides secret file) |
+| `SENTINEL_API_ENDPOINT` | Default endpoint for `sentinelctl` and SDKs |
+| `SENTINEL_API_TOKEN` | Bearer token for `sentinelctl` and SDKs |
+
+## Production wiring notes
+
+- **CometBFT**: a real ed25519 signing key must be mounted; the backend
+  uses `broadcast_tx_commit` and reads `/status` for height.
+- **Besu/QBFT**: production must supply an `EVMSigner` that produces
+  signed raw transactions (go-ethereum, an HSM, or a remote signer such as
+  web3signer). The read paths (`eth_blockNumber`,
+  `eth_getTransactionReceipt`) work without a signer.
+- **immudb**: the backend uses `VerifiedSet`/`VerifiedGet`; an empty
+  endpoint falls back to an in-memory shadow log for CI/dev only.
+- **S3 / MinIO**: pass an `object.MinioConfig` with credentials and bucket
+  to back the cold archiver. `evidence.NewObjectStoreSink` adapts the store
+  to `evidence.ArchiveSink`.
+
+## Repository layout
+
+```
+cmd/                Binaries
+contracts/          OpenAPI + protobuf
+deploy/             Compose, Helm, Kubernetes
+docs/               Runbooks
+examples/           Go, Node.js, Python, Anthropic, OpenAI-compatible AI lane
+internal/           All internal packages (api, core, ledger, evidence, …)
+policy/             OPA bundles
+sdk/                Go, TypeScript, Python SDKs
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Quick path:
+
+```bash
+make tidy && make build && make test
+```
+
+PRs should keep `go vet` and `go test -race` clean and update OpenAPI when
+the HTTP surface changes.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

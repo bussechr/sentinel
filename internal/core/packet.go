@@ -164,7 +164,7 @@ type Packet struct {
 	TraceID       string    `json:"trace_id,omitempty"`
 	CapturedAt    time.Time `json:"captured_at"`
 
-	App      AppContext    `json:"app"`
+	App      AppContext   `json:"app"`
 	Actor    Actor        `json:"actor"`
 	Action   Action       `json:"action"`
 	Resource Resource     `json:"resource"`

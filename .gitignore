@@ -27,3 +27,12 @@ Thumbs.db
 
 # Policy bundle tarballs
 policy/bundles/*.tar.gz
+
+# SDK build artefacts
+sdk/ts/node_modules/
+sdk/ts/dist/
+sdk/ts/package-lock.json
+sdk/python/build/
+sdk/python/dist/
+sdk/python/*.egg-info/
+sdk/python/.pytest_cache/

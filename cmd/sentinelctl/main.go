@@ -1,13 +1,16 @@
 // sentinelctl is the Sentinel operator CLI.
 //
 // Commands:
-//   doctor               — connectivity and dependency health check
-//   register app         — register a new application
-//   emit-test-packet     — emit a test governance packet
-//   simulate-policy      — preview policy impact before promotion
-//   verify-ledger        — verify a packet receipt against the chain
-//   rewind               — reconstruct evidence for a correlation ID
-//   export-evidence      — produce a signed evidence export bundle
+//
+//	doctor                — connectivity and dependency health check
+//	register app          — register a new application
+//	emit-test-packet      — emit a test governance packet
+//	simulate-policy       — preview policy impact before promotion
+//	verify-ledger         — verify a packet receipt against the chain
+//	rewind                — reconstruct evidence for a correlation ID
+//	export-evidence       — produce a signed evidence export bundle
+//	writers               — health of every registered ledger writer
+//	shadow-divergences    — recent shadow vs active policy divergences
 //
 // Run sentinelctl --help for full usage.
 package main
@@ -42,6 +45,8 @@ Set SENTINEL_API_TOKEN for authentication.`,
 		commands.VerifyLedgerCmd(),
 		commands.RewindCmd(),
 		commands.ExportEvidenceCmd(),
+		commands.WritersCmd(),
+		commands.ShadowDivergencesCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

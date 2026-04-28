@@ -28,12 +28,12 @@ type RewindStore interface {
 
 // RewindResult is the reconstructed event path for one correlation ID.
 type RewindResult struct {
-	CorrelationID string                `json:"correlation_id"`
-	WindowUsed    time.Duration         `json:"window_used"`
-	Packets       []*core.Packet        `json:"packets"`
+	CorrelationID string                 `json:"correlation_id"`
+	WindowUsed    time.Duration          `json:"window_used"`
+	Packets       []*core.Packet         `json:"packets"`
 	Decisions     []*core.DecisionRecord `json:"decisions"`
-	Receipts      []*core.Receipt       `json:"receipts"`
-	Segments      []*Segment            `json:"segments"`
+	Receipts      []*core.Receipt        `json:"receipts"`
+	Segments      []*Segment             `json:"segments"`
 }
 
 // Rewind fetches all evidence for the correlation ID within the given window.

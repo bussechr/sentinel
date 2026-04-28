@@ -1,11 +1,13 @@
 // Example: go-http-app demonstrates minimal Go SDK integration.
 //
 // This app registers two routes:
-//   /refund    — high-risk mutating action (guard mode)
-//   /status    — low-risk read-only action (observe mode)
+//
+//	/refund    — high-risk mutating action (guard mode)
+//	/status    — low-risk read-only action (observe mode)
 //
 // Run:
-//   SENTINEL_API_ENDPOINT=http://localhost:8080 go run ./examples/go-http-app/
+//
+//	SENTINEL_API_ENDPOINT=http://localhost:8080 go run ./examples/go-http-app/
 package main
 
 import (

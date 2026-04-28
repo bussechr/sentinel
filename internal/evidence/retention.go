@@ -25,9 +25,9 @@ type RetentionStore interface {
 
 // Retention enforces the evidence window on the hot index.
 type Retention struct {
-	store    RetentionStore
-	window   time.Duration
-	log      *zap.Logger
+	store  RetentionStore
+	window time.Duration
+	log    *zap.Logger
 }
 
 // NewRetention creates a retention enforcer with the given window duration.

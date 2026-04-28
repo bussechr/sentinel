@@ -20,8 +20,8 @@ type Config struct {
 	} `yaml:"sentinel"`
 
 	API struct {
-		Listen      string `yaml:"listen"`
-		MTLSRequired bool  `yaml:"mtls_required"`
+		Listen       string `yaml:"listen"`
+		MTLSRequired bool   `yaml:"mtls_required"`
 	} `yaml:"api"`
 
 	Identity struct {
@@ -37,9 +37,9 @@ type Config struct {
 	} `yaml:"policy"`
 
 	Ledger struct {
-		Backend      string   `yaml:"backend"`
-		AnchorStrategy string `yaml:"anchor_strategy"`
-		FailClosedFor []string `yaml:"fail_closed_for"`
+		Backend        string   `yaml:"backend"`
+		AnchorStrategy string   `yaml:"anchor_strategy"`
+		FailClosedFor  []string `yaml:"fail_closed_for"`
 	} `yaml:"ledger"`
 
 	Storage struct {
