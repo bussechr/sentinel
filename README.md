@@ -1,5 +1,9 @@
 # Sentinel
 
+<p align="center">
+  <img src="docs/assets/sentinel.png" alt="Sentinel" width="420" />
+</p>
+
 **A reusable governance control plane for modern applications.**
 
 Sentinel sits next to your services and AI agents. It evaluates each
