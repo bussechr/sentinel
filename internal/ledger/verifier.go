@@ -28,17 +28,17 @@ func NewVerifier(backend Backend) *Verifier {
 // The hash is deterministic: packet_id + captured_at + action name + payload body hash.
 func HashPacket(p *core.Packet) (string, error) {
 	type canonical struct {
-		PacketID  string `json:"packet_id"`
+		PacketID   string `json:"packet_id"`
 		CapturedAt string `json:"captured_at"`
 		ActionName string `json:"action_name"`
-		BodyHash  string `json:"body_hash"`
+		BodyHash   string `json:"body_hash"`
 	}
 
 	c := canonical{
-		PacketID:  p.PacketID,
+		PacketID:   p.PacketID,
 		CapturedAt: p.CapturedAt.UTC().Format("2006-01-02T15:04:05.999999999Z"),
 		ActionName: p.Action.Name,
-		BodyHash:  p.Payload.BodyHash,
+		BodyHash:   p.Payload.BodyHash,
 	}
 
 	b, err := json.Marshal(c)
@@ -52,14 +52,14 @@ func HashPacket(p *core.Packet) (string, error) {
 
 // VerifyResult is the output of a ledger verification check.
 type VerifyResult struct {
-	PacketID       string `json:"packet_id"`
-	ReceiptID      string `json:"receipt_id"`
-	LocalHash      string `json:"local_hash"`
-	ChainHash      string `json:"chain_hash"`
-	HashMatch      bool   `json:"hash_match"`
-	ChainHeight    int64  `json:"chain_height"`
-	Verified       bool   `json:"verified"`
-	FailureReason  string `json:"failure_reason,omitempty"`
+	PacketID      string `json:"packet_id"`
+	ReceiptID     string `json:"receipt_id"`
+	LocalHash     string `json:"local_hash"`
+	ChainHash     string `json:"chain_hash"`
+	HashMatch     bool   `json:"hash_match"`
+	ChainHeight   int64  `json:"chain_height"`
+	Verified      bool   `json:"verified"`
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 // Verify checks a receipt against the chain and the locally-computed packet hash.

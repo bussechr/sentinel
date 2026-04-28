@@ -5,10 +5,11 @@
 // the CometBFT chain according to the risk-tiered anchoring strategy.
 //
 // Anchor queue behaviour by risk:
-//   low      → batch anchor; app proceeds after packet storage.
-//   medium   → batch anchor + local witness receipt.
-//   high     → immediate anchor request; app proceeds after chain acceptance.
-//   critical → chain acceptance + approval workflow required.
+//
+//	low      → batch anchor; app proceeds after packet storage.
+//	medium   → batch anchor + local witness receipt.
+//	high     → immediate anchor request; app proceeds after chain acceptance.
+//	critical → chain acceptance + approval workflow required.
 package ledger
 
 import (

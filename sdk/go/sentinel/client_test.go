@@ -17,11 +17,11 @@ func fakeServer(t *testing.T, decision string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"decision":       decision,
-			"decision_id":    "dec_test",
-			"packet_id":      "pkt_test",
+			"decision":        decision,
+			"decision_id":     "dec_test",
+			"packet_id":       "pkt_test",
 			"ledger_required": false,
-			"receipt_status": "accepted",
+			"receipt_status":  "accepted",
 		})
 	}))
 }

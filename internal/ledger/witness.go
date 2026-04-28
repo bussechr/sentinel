@@ -23,14 +23,14 @@ import (
 
 // WitnessReceipt is a locally-signed evidence record that a packet was evaluated.
 type WitnessReceipt struct {
-	WitnessID   string         `json:"witness_id"`
-	PacketID    string         `json:"packet_id"`
-	PacketHash  string         `json:"packet_hash"`
-	Decision    core.Decision  `json:"decision"`
-	Risk        core.RiskLevel `json:"risk"`
-	IssuedAt    time.Time      `json:"issued_at"`
-	Signature   string         `json:"signature"` // ed25519:<hex>
-	PublicKey   string         `json:"public_key"` // hex
+	WitnessID  string         `json:"witness_id"`
+	PacketID   string         `json:"packet_id"`
+	PacketHash string         `json:"packet_hash"`
+	Decision   core.Decision  `json:"decision"`
+	Risk       core.RiskLevel `json:"risk"`
+	IssuedAt   time.Time      `json:"issued_at"`
+	Signature  string         `json:"signature"`  // ed25519:<hex>
+	PublicKey  string         `json:"public_key"` // hex
 }
 
 // Witness issues local evidence receipts using the Sentinel API signing key.

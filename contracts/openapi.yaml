@@ -22,7 +22,7 @@ tags:
   - name: ai
     description: AI traceability lane
   - name: ledger
-    description: Chain anchoring and receipt verification
+    description: Chain anchoring, receipt verification, and multi-backend writer registry
   - name: evidence
     description: 72-hour rolling evidence window
   - name: policy
@@ -294,6 +294,35 @@ paths:
         "200":
           description: Rewind result
 
+  /v1/evidence/causal/{correlationId}:
+    get:
+      tags: [evidence]
+      operationId: causalGraph
+      summary: Compiled causal DAG for a correlation ID
+      description: |
+        Returns a typed graph over packets, decisions, receipts, and runtime
+        segments for the given correlation ID. Includes convenience flags such
+        as `anchored` and `first_deny` so an incident response UI can render
+        the timeline without a second pass.
+      parameters:
+        - name: correlationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "72h"
+      responses:
+        "200":
+          description: Causal graph
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CausalGraphResponse"
+
   # ─── Policy ─────────────────────────────────────────────────────────────────
 
   /v1/policy/bundles:
@@ -319,6 +348,56 @@ paths:
       responses:
         "200":
           description: Simulation result
+
+  /v1/policy/shadow/divergences:
+    get:
+      tags: [policy]
+      operationId: listShadowDivergences
+      summary: List recent shadow vs active policy divergences
+      description: |
+        When a candidate (shadow) policy bundle is registered alongside the
+        active bundle, every authorise call evaluates both. This endpoint
+        returns recent rows where the candidate decision differed from the
+        active decision, so operators can decide whether the candidate is
+        safe to promote.
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Divergence list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShadowDivergencesResponse"
+
+  /v1/ledger/writers:
+    get:
+      tags: [ledger]
+      operationId: listLedgerWriters
+      summary: Health snapshot for every registered ledger writer
+      description: |
+        The ledger writer registry can hold multiple backends concurrently —
+        CometBFT (default app chain), Besu/QBFT (EVM contract anchoring), and
+        immudb (verifiable proof). This endpoint reports per-writer health,
+        latest height, and which writer is the registry default.
+      responses:
+        "200":
+          description: Writer health snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriterHealthList"
 
   # ─── Ops ────────────────────────────────────────────────────────────────────
 
@@ -551,6 +630,89 @@ components:
         packet_id: { type: string }
         response_hash: { type: string }
         tool_call_count: { type: integer }
+
+    CausalGraphResponse:
+      type: object
+      properties:
+        correlation_id: { type: string }
+        anchored: { type: boolean }
+        first_deny:
+          type: object
+          properties:
+            id: { type: string }
+            kind: { type: string }
+            at: { type: string, format: date-time }
+            label: { type: string }
+        graph:
+          type: object
+          properties:
+            correlation_id: { type: string }
+            nodes:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  kind:
+                    type: string
+                    enum: [packet, decision, receipt, segment, ai]
+                  at: { type: string, format: date-time }
+                  label: { type: string }
+            edges:
+              type: array
+              items:
+                type: object
+                properties:
+                  from: { type: string }
+                  to: { type: string }
+                  kind:
+                    type: string
+                    enum: [evaluated_as, anchored_by, observed_by, followed_by]
+
+    WriterHealth:
+      type: object
+      required: [kind, name, healthy, height]
+      properties:
+        kind:
+          type: string
+          enum: [cometbft, besu, immudb]
+        name: { type: string }
+        healthy: { type: boolean }
+        height: { type: integer, format: int64 }
+        reason: { type: string }
+
+    WriterHealthList:
+      type: object
+      properties:
+        default: { type: string }
+        writers:
+          type: array
+          items:
+            $ref: "#/components/schemas/WriterHealth"
+
+    ShadowDecisionRecord:
+      type: object
+      properties:
+        shadow_id: { type: string }
+        packet_id: { type: string }
+        correlation_id: { type: string }
+        active_bundle_id: { type: string }
+        candidate_bundle_id: { type: string }
+        active_decision: { type: string, enum: [allow, warn, deny, escalate] }
+        candidate_decision: { type: string, enum: [allow, warn, deny, escalate] }
+        diverged: { type: boolean }
+        active_reason: { type: string }
+        candidate_reason: { type: string }
+        evaluated_at: { type: string, format: date-time }
+
+    ShadowDivergencesResponse:
+      type: object
+      properties:
+        since: { type: string, format: date-time }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShadowDecisionRecord"
 
   securitySchemes:
     BearerToken:

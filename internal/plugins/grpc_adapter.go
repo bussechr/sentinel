@@ -5,10 +5,10 @@
 // issues of Go's native plugin package.
 //
 // Plugin lifecycle:
-//   1. Plugin starts and connects to Sentinel plugin endpoint (default :9099).
-//   2. Plugin calls Register RPC with its capabilities (capture categories).
-//   3. Sentinel routes capture events to registered plugins based on category.
-//   4. Plugin streams captured packets back to Sentinel via the Ingest RPC.
+//  1. Plugin starts and connects to Sentinel plugin endpoint (default :9099).
+//  2. Plugin calls Register RPC with its capabilities (capture categories).
+//  3. Sentinel routes capture events to registered plugins based on category.
+//  4. Plugin streams captured packets back to Sentinel via the Ingest RPC.
 //
 // M5 implementation milestone.
 package plugins
@@ -30,10 +30,10 @@ type Capability struct {
 
 // GRPCAdapter manages out-of-process plugin connections.
 type GRPCAdapter struct {
-	mu          sync.RWMutex
-	plugins     map[string]*Capability
-	log         *zap.Logger
-	listenAddr  string
+	mu         sync.RWMutex
+	plugins    map[string]*Capability
+	log        *zap.Logger
+	listenAddr string
 }
 
 // NewGRPCAdapter creates the gRPC plugin adapter.

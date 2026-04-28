@@ -1,34 +1,38 @@
 // Package api implements all Sentinel HTTP handlers (v1).
 //
 // Handler wiring:
-//   POST /v1/apps/register         → RegisterApp
-//   POST /v1/packets               → IngestPacket
-//   POST /v1/packets/authorize     → AuthorizePacket
-//   GET  /v1/packets/{packet_id}   → GetPacket
 //
-//   POST /v1/ai/trace              → TraceAI
-//   POST /v1/ai/authorize          → AuthorizeAI
-//   POST /v1/ai/result             → RecordAIResult
+//	POST /v1/apps/register         → RegisterApp
+//	POST /v1/packets               → IngestPacket
+//	POST /v1/packets/authorize     → AuthorizePacket
+//	GET  /v1/packets/{packet_id}   → GetPacket
 //
-//   POST /v1/ledger/anchor                      → AnchorPacket
-//   GET  /v1/ledger/receipts/{packet_id}        → GetReceipt
-//   GET  /v1/ledger/verify/{receipt_id}         → VerifyReceipt
+//	POST /v1/ai/trace              → TraceAI
+//	POST /v1/ai/authorize          → AuthorizeAI
+//	POST /v1/ai/result             → RecordAIResult
 //
-//   GET  /v1/evidence/window                    → QueryWindow
-//   POST /v1/evidence/export                    → ExportEvidence
-//   GET  /v1/evidence/rewind/{correlation_id}   → RewindEvidence
+//	POST /v1/ledger/anchor                      → AnchorPacket
+//	GET  /v1/ledger/receipts/{packet_id}        → GetReceipt
+//	GET  /v1/ledger/verify/{receipt_id}         → VerifyReceipt
 //
-//   GET  /v1/policy/bundles        → ListBundles
-//   POST /v1/policy/simulate       → SimulatePolicy
+//	GET  /v1/evidence/window                    → QueryWindow
+//	POST /v1/evidence/export                    → ExportEvidence
+//	GET  /v1/evidence/rewind/{correlation_id}   → RewindEvidence
+//
+//	GET  /v1/policy/bundles        → ListBundles
+//	POST /v1/policy/simulate       → SimulatePolicy
 package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	ailane "github.com/your-org/sentinel/internal/capture/ai"
+	"github.com/your-org/sentinel/internal/causalgraph"
 	"github.com/your-org/sentinel/internal/core"
 	"github.com/your-org/sentinel/internal/evidence"
 	"github.com/your-org/sentinel/internal/ledger"
@@ -41,8 +45,11 @@ import (
 type Handler struct {
 	store   *pgstore.Store
 	policy  *policy.Engine
+	shadow  *policy.Shadow
 	queue   *ledger.Queue
+	writers *ledger.Registry
 	witness *ledger.Witness
+	aiGate  *ailane.Gate
 	mode    core.SentinelMode
 	log     *zap.Logger
 }
@@ -61,9 +68,25 @@ func NewHandler(
 		policy:  policyEngine,
 		queue:   queue,
 		witness: witness,
+		aiGate:  ailane.NewGate(),
 		mode:    mode,
 		log:     log,
 	}
+}
+
+// WithShadow wires an optional shadow policy engine. When set, every
+// authorise call evaluates both the active and the candidate bundle and
+// persists the divergence via store.InsertShadowDecision.
+func (h *Handler) WithShadow(s *policy.Shadow) *Handler {
+	h.shadow = s
+	return h
+}
+
+// WithWriterRegistry attaches a multi-backend writer registry. The
+// /v1/ledger/writers endpoint surfaces health for every writer.
+func (h *Handler) WithWriterRegistry(r *ledger.Registry) *Handler {
+	h.writers = r
+	return h
 }
 
 // Register mounts all API routes on mux.
@@ -80,13 +103,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/ledger/anchor", h.AnchorPacket)
 	mux.HandleFunc("/v1/ledger/receipts/", h.GetReceipt)
 	mux.HandleFunc("/v1/ledger/verify/", h.VerifyReceipt)
+	mux.HandleFunc("/v1/ledger/writers", h.ListWriters)
 
 	mux.HandleFunc("/v1/evidence/window", h.QueryWindow)
 	mux.HandleFunc("/v1/evidence/export", h.ExportEvidence)
 	mux.HandleFunc("/v1/evidence/rewind/", h.RewindEvidence)
+	mux.HandleFunc("/v1/evidence/causal/", h.CausalGraph)
 
 	mux.HandleFunc("/v1/policy/bundles", h.ListBundles)
 	mux.HandleFunc("/v1/policy/simulate", h.SimulatePolicy)
+	mux.HandleFunc("/v1/policy/shadow/divergences", h.ShadowDivergences)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -116,14 +142,14 @@ func newID(prefix string) string {
 // ─── App registration ─────────────────────────────────────────────────────────
 
 type registerAppRequest struct {
-	AppID             string               `json:"app_id"`
-	Service           string               `json:"service"`
-	Environment       string               `json:"environment"`
-	Owner             string               `json:"owner"`
-	Mode              core.SentinelMode    `json:"mode"`
-	RiskTier          core.RiskLevel       `json:"risk_tier"`
+	AppID             string                `json:"app_id"`
+	Service           string                `json:"service"`
+	Environment       string                `json:"environment"`
+	Owner             string                `json:"owner"`
+	Mode              core.SentinelMode     `json:"mode"`
+	RiskTier          core.RiskLevel        `json:"risk_tier"`
 	AllowedCategories []core.ActionCategory `json:"allowed_categories"`
-	PolicyScope       string               `json:"policy_scope"`
+	PolicyScope       string                `json:"policy_scope"`
 }
 
 // RegisterApp handles POST /v1/apps/register.
@@ -161,7 +187,7 @@ func (h *Handler) RegisterApp(w http.ResponseWriter, r *http.Request) {
 		RiskTier:          req.RiskTier,
 		AllowedCategories: req.AllowedCategories,
 		PolicyScope:       req.PolicyScope,
-		SigningKeyRef:      "key-ref:" + req.AppID,
+		SigningKeyRef:     "key-ref:" + req.AppID,
 		RegistrationToken: token,
 		RegisteredAt:      time.Now().UTC(),
 	}
@@ -244,17 +270,17 @@ func (h *Handler) AuthorizePacket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type authorizeRequest struct {
-		AppID         string               `json:"app_id"`
-		ActorType     core.ActorType       `json:"actor_type"`
-		ActorIDHash   string               `json:"actor_id_hash"`
-		ActionName    string               `json:"action_name"`
-		Category      core.ActionCategory  `json:"category"`
-		Risk          core.RiskLevel       `json:"risk"`
-		Mutating      bool                 `json:"mutating"`
-		ResourceType  string               `json:"resource_type"`
-		PayloadHash   string               `json:"payload_hash"`
-		CorrelationID string               `json:"correlation_id"`
-		TraceID       string               `json:"trace_id"`
+		AppID         string              `json:"app_id"`
+		ActorType     core.ActorType      `json:"actor_type"`
+		ActorIDHash   string              `json:"actor_id_hash"`
+		ActionName    string              `json:"action_name"`
+		Category      core.ActionCategory `json:"category"`
+		Risk          core.RiskLevel      `json:"risk"`
+		Mutating      bool                `json:"mutating"`
+		ResourceType  string              `json:"resource_type"`
+		PayloadHash   string              `json:"payload_hash"`
+		CorrelationID string              `json:"correlation_id"`
+		TraceID       string              `json:"trace_id"`
 	}
 
 	var req authorizeRequest
@@ -288,8 +314,15 @@ func (h *Handler) AuthorizePacket(w http.ResponseWriter, r *http.Request) {
 	// Apply risk escalation.
 	p.Action.Risk = policy.Classify(p)
 
-	// Evaluate policy.
-	decision, err := h.evaluatePolicy(r, p)
+	// AI ingress gate: machine actors must transit the AI gateway.
+	if err := h.aiGate.Verify(r, p); err != nil {
+		apiError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	// Evaluate policy. If a shadow engine is registered, run both bundles
+	// in parallel and persist the divergence record.
+	decision, err := h.evaluateWithShadow(r, p)
 	if err != nil {
 		if h.mode != core.ModeObserve && isFailClosed(p.Action.Risk) {
 			apiError(w, http.StatusServiceUnavailable, "policy unavailable; action fail-closed")
@@ -328,13 +361,13 @@ func (h *Handler) AuthorizePacket(w http.ResponseWriter, r *http.Request) {
 	// Block if deny and not observe mode.
 	if decision.Decision == core.DecisionDeny && h.mode != core.ModeObserve {
 		writeJSON(w, http.StatusForbidden, map[string]interface{}{
-			"decision":       decision.Decision,
-			"decision_id":    decisionID,
-			"packet_id":      p.PacketID,
-			"reason":         decision.Reason,
+			"decision":        decision.Decision,
+			"decision_id":     decisionID,
+			"packet_id":       p.PacketID,
+			"reason":          decision.Reason,
 			"ledger_required": false,
-			"receipt_status": "denied",
-			"witness_id":     wReceipt.WitnessID,
+			"receipt_status":  "denied",
+			"witness_id":      wReceipt.WitnessID,
 		})
 		return
 	}
@@ -417,6 +450,15 @@ func (h *Handler) AuthorizeAI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	// AI authorise must transit the AI gateway. Both headers are required.
+	if r.Header.Get(ailane.HeaderRoute) != ailane.HeaderRouteValue {
+		apiError(w, http.StatusForbidden, "ai_lane: missing or invalid "+ailane.HeaderRoute+" header")
+		return
+	}
+	if r.Header.Get(ailane.HeaderActor) == "" {
+		apiError(w, http.StatusForbidden, "ai_lane: "+ailane.HeaderActor+" header is required")
+		return
+	}
 	var req aiTraceRequest
 	if err := readJSON(r, &req); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
@@ -448,6 +490,9 @@ func (h *Handler) AuthorizeAI(w http.ResponseWriter, r *http.Request) {
 	decision, err := h.evaluatePolicy(r, p)
 	if err != nil {
 		decision = &policy.EvaluateResult{Decision: core.DecisionAllow, Reason: "policy degraded"}
+	}
+	if decision == nil {
+		decision = &policy.EvaluateResult{Decision: core.DecisionAllow, Reason: "policy not configured"}
 	}
 
 	decID := newID("dec_")
@@ -681,6 +726,159 @@ func (h *Handler) evaluatePolicy(r *http.Request, p *core.Packet) (*policy.Evalu
 		App:    app,
 		Mode:   h.mode,
 	})
+}
+
+// evaluateWithShadow runs the active engine and, when a shadow is wired,
+// the candidate engine in parallel. Divergence is persisted asynchronously.
+func (h *Handler) evaluateWithShadow(r *http.Request, p *core.Packet) (*policy.EvaluateResult, error) {
+	if h.shadow == nil {
+		return h.evaluatePolicy(r, p)
+	}
+	app, _ := h.store.GetApp(r.Context(), p.App.AppID)
+	res, err := h.shadow.Evaluate(r.Context(), &policy.EvaluateInput{
+		Packet: p,
+		App:    app,
+		Mode:   h.mode,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Persist the divergence; never fail the request on logging.
+	if h.store != nil && res.Candidate != nil {
+		go func() {
+			rec := res.ToRecord(p.PacketID, p.CorrelationID)
+			if err := h.store.InsertShadowDecision(r.Context(), rec); err != nil {
+				h.log.Warn("shadow: persist divergence", zap.Error(err))
+			}
+		}()
+	}
+	return res.Active, nil
+}
+
+// CausalGraph handles GET /v1/evidence/causal/{correlation_id}.
+//
+// Returns the compiled DAG over packets, decisions, receipts, and
+// evidence segments for one correlation ID, plus convenience flags such
+// as anchored and first_deny.
+func (h *Handler) CausalGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	corrID := pathSuffix(r, "/v1/evidence/causal/")
+	if corrID == "" {
+		apiError(w, http.StatusBadRequest, "correlation_id required")
+		return
+	}
+	windowStr := r.URL.Query().Get("window")
+	window := evidence.DefaultWindowDuration
+	if windowStr != "" {
+		if d, err := time.ParseDuration(windowStr); err == nil {
+			window = d
+		}
+	}
+
+	rw, err := evidence.Rewind(r.Context(), h.store, corrID, window, false)
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	graph := causalgraph.Compile(causalgraph.Result{
+		CorrelationID: rw.CorrelationID,
+		Packets:       rw.Packets,
+		Decisions:     rw.Decisions,
+		Receipts:      rw.Receipts,
+		Segments:      rw.Segments,
+	})
+
+	resp := map[string]interface{}{
+		"correlation_id": corrID,
+		"graph":          graph,
+		"anchored":       graph.Anchored(),
+	}
+	if first := graph.FirstDeny(); first != nil {
+		resp["first_deny"] = first
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ListWriters handles GET /v1/ledger/writers and reports per-writer
+// health for every registered ledger backend.
+func (h *Handler) ListWriters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if h.writers == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"writers": []ledger.WriterHealth{},
+			"default": "",
+		})
+		return
+	}
+	def := ""
+	if d := h.writers.Default(); d != nil {
+		def = d.Name()
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"writers": h.writers.HealthAll(r.Context()),
+		"default": def,
+	})
+}
+
+// ShadowDivergences handles GET /v1/policy/shadow/divergences.
+func (h *Handler) ShadowDivergences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	q := r.URL.Query()
+	since := time.Now().UTC().Add(-24 * time.Hour)
+	if v := q.Get("since"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			since = t
+		}
+	}
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		var parsed int
+		_, err := fmtSscanInt(v, &parsed)
+		if err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	rows, err := h.store.ListShadowDivergences(r.Context(), since, limit)
+	if err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"since": since,
+		"rows":  rows,
+	})
+}
+
+// fmtSscanInt is a tiny wrapper to parse an integer query parameter
+// without dragging strconv into more handlers than necessary.
+func fmtSscanInt(s string, dst *int) (int, error) {
+	return jsonNumberScan(s, dst)
+}
+
+// jsonNumberScan is a minimal int parser that ignores leading/trailing space.
+func jsonNumberScan(s string, dst *int) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("empty number")
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, errors.New("not a number")
+		}
+		n = n*10 + int(c-'0')
+	}
+	*dst = n
+	return n, nil
 }
 
 func (h *Handler) enqueueAnchor(r *http.Request, p *core.Packet) *core.Receipt {

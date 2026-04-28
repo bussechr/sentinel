@@ -40,10 +40,10 @@ func TestAuthorizePacket_MissingAppID(t *testing.T) {
 	h.Register(mux)
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"action_name": "test.action",
-		"category":    "http",
-		"risk":        "low",
-		"mutating":    false,
+		"action_name":  "test.action",
+		"category":     "http",
+		"risk":         "low",
+		"mutating":     false,
 		"payload_hash": "sha256:abc",
 	})
 
@@ -123,5 +123,87 @@ func TestQueryWindow_TooWide(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for window > 72h, got %d", w.Code)
+	}
+}
+
+func TestAuthorizeAI_RejectsMissingRouteHeader(t *testing.T) {
+	h := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"app_id":         "claude-billing",
+		"correlation_id": "corr_x",
+		"prompt_hash":    "sha256:abc",
+		"model_id_hash":  "sha256:def",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/ai/authorize", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for missing AI gateway headers, got %d", w.Code)
+	}
+}
+
+func TestAuthorizeAI_PassesWithGatewayHeaders(t *testing.T) {
+	h := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"app_id":         "claude-billing",
+		"correlation_id": "corr_x",
+		"prompt_hash":    "sha256:abc",
+		"model_id_hash":  "sha256:def",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/ai/authorize", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Sentinel-AI-Route", "ai-gateway")
+	req.Header.Set("X-Sentinel-AI-Actor", "model:claude")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	// nil store/policy → handler returns 200 with degraded allow.
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 once gateway headers are set, got %d", w.Code)
+	}
+}
+
+func TestCausalGraph_RequiresCorrelationID(t *testing.T) {
+	h := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/evidence/causal/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty correlation id, got %d", w.Code)
+	}
+}
+
+func TestListWriters_EmptyRegistry(t *testing.T) {
+	h := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/ledger/writers", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	var resp struct {
+		Writers []map[string]interface{} `json:"writers"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Writers) != 0 {
+		t.Errorf("expected empty writer list, got %d", len(resp.Writers))
 	}
 }

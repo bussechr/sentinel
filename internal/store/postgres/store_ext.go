@@ -13,17 +13,22 @@ import (
 
 // ─── Receipts ────────────────────────────────────────────────────────────────
 
-// InsertReceipt stores a chain receipt.
+// InsertReceipt stores a chain receipt. The new columns introduced in
+// migration 002 (correlation_id, evidence_root_hash, writer_kind, writer_name)
+// are written when present and remain NULL otherwise.
 func (s *Store) InsertReceipt(ctx context.Context, r *core.Receipt) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO receipts (receipt_id, packet_id, packet_hash, decision_hash,
 		    policy_bundle_hash, app_id, risk, anchor_mode, status,
-		    chain_tx_id, chain_height, issued_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		    chain_tx_id, chain_height, issued_at,
+		    correlation_id, evidence_root_hash, writer_kind, writer_name)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT (receipt_id) DO NOTHING`,
 		r.ReceiptID, r.PacketID, r.PacketHash, r.DecisionHash,
 		r.PolicyBundleHash, r.AppID, string(r.Risk), string(r.AnchorMode),
 		string(r.Status), r.ChainTransactionID, r.ChainHeight, r.IssuedAt,
+		nullableString(r.CorrelationID), nullableString(r.EvidenceRootHash),
+		nullableString(r.WriterKind), nullableString(r.WriterName),
 	)
 	return err
 }
@@ -31,21 +36,44 @@ func (s *Store) InsertReceipt(ctx context.Context, r *core.Receipt) error {
 // GetReceiptByPacketID retrieves the most recent receipt for a packet.
 func (s *Store) GetReceiptByPacketID(ctx context.Context, packetID string) (*core.Receipt, error) {
 	var r core.Receipt
+	var corrID, evRoot, wKind, wName *string
 	err := s.pool.QueryRow(ctx, `
 		SELECT receipt_id, packet_id, packet_hash, decision_hash,
 		       policy_bundle_hash, app_id, risk, anchor_mode,
-		       status, chain_tx_id, chain_height, issued_at, verified_at
+		       status, chain_tx_id, chain_height, issued_at, verified_at,
+		       correlation_id, evidence_root_hash, writer_kind, writer_name
 		FROM receipts WHERE packet_id = $1 ORDER BY issued_at DESC LIMIT 1`,
 		packetID,
 	).Scan(
 		&r.ReceiptID, &r.PacketID, &r.PacketHash, &r.DecisionHash,
 		&r.PolicyBundleHash, &r.AppID, &r.Risk, &r.AnchorMode,
 		&r.Status, &r.ChainTransactionID, &r.ChainHeight, &r.IssuedAt, &r.VerifiedAt,
+		&corrID, &evRoot, &wKind, &wName,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: get receipt for packet %q: %w", packetID, err)
 	}
+	r.CorrelationID = derefString(corrID)
+	r.EvidenceRootHash = derefString(evRoot)
+	r.WriterKind = derefString(wKind)
+	r.WriterName = derefString(wName)
 	return &r, nil
+}
+
+// nullableString returns nil for empty strings so Postgres stores NULL.
+func nullableString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// derefString returns "" for nil pointers.
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // ─── AI Traces ───────────────────────────────────────────────────────────────

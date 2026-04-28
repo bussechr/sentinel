@@ -77,24 +77,24 @@ type RoutePolicy struct {
 
 // AuthorizeRequest is the packet sent to POST /v1/packets/authorize.
 type AuthorizeRequest struct {
-	AppID        string `json:"app_id"`
-	ActorType    string `json:"actor_type"`
-	ActionName   string `json:"action_name"`
-	Category     string `json:"category"`
-	Risk         string `json:"risk"`
-	Mutating     bool   `json:"mutating"`
-	ResourceType string `json:"resource_type,omitempty"`
-	PayloadHash  string `json:"payload_hash"`
+	AppID         string `json:"app_id"`
+	ActorType     string `json:"actor_type"`
+	ActionName    string `json:"action_name"`
+	Category      string `json:"category"`
+	Risk          string `json:"risk"`
+	Mutating      bool   `json:"mutating"`
+	ResourceType  string `json:"resource_type,omitempty"`
+	PayloadHash   string `json:"payload_hash"`
 	CorrelationID string `json:"correlation_id,omitempty"`
-	TraceID      string `json:"trace_id,omitempty"`
+	TraceID       string `json:"trace_id,omitempty"`
 }
 
 // AuthorizeResponse is the response from POST /v1/packets/authorize.
 type AuthorizeResponse struct {
-	Decision      string `json:"decision"`
-	DecisionID    string `json:"decision_id"`
-	PacketID      string `json:"packet_id"`
-	LedgerRequired bool  `json:"ledger_required"`
+	Decision       string `json:"decision"`
+	DecisionID     string `json:"decision_id"`
+	PacketID       string `json:"packet_id"`
+	LedgerRequired bool   `json:"ledger_required"`
 	ReceiptStatus  string `json:"receipt_status"`
 }
 

@@ -21,11 +21,11 @@ import (
 
 // Engine evaluates governance packets against an OPA policy bundle.
 type Engine struct {
-	bundleURL   string
-	bundleID    string
-	bundleHash  string
-	log         *zap.Logger
-	query       *rego.PreparedEvalQuery
+	bundleURL  string
+	bundleID   string
+	bundleHash string
+	log        *zap.Logger
+	query      *rego.PreparedEvalQuery
 }
 
 // NewEngine creates and prepares an OPA query against the named policy.
@@ -51,9 +51,9 @@ func NewEngine(ctx context.Context, bundleURL string, log *zap.Logger) (*Engine,
 
 // EvaluateInput is the data object sent to OPA for each packet evaluation.
 type EvaluateInput struct {
-	Packet *core.Packet        `json:"packet"`
+	Packet *core.Packet          `json:"packet"`
 	App    *core.AppRegistration `json:"app"`
-	Mode   core.SentinelMode   `json:"mode"`
+	Mode   core.SentinelMode     `json:"mode"`
 }
 
 // EvaluateResult is the structured response from OPA.

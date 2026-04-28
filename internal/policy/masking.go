@@ -5,9 +5,10 @@
 // and per-route and is recorded on every decision.
 //
 // Built-in profiles:
-//   default-dev  — no masking; all fields visible.
-//   default-prod — masks actor ID hashes, tenant hashes, payload body hashes.
-//   pii-strict   — additionally masks resource IDs and correlation IDs.
+//
+//	default-dev  — no masking; all fields visible.
+//	default-prod — masks actor ID hashes, tenant hashes, payload body hashes.
+//	pii-strict   — additionally masks resource IDs and correlation IDs.
 package policy
 
 import "github.com/your-org/sentinel/internal/core"
