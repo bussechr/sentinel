@@ -4,12 +4,46 @@
   <img src="docs/assets/sentinel.png" alt="Sentinel" width="420" />
 </p>
 
-**A reusable governance control plane for modern applications.**
+**Govern, audit, and replay every high-stakes action your services and
+AI agents take — through one external service.**
 
-Sentinel sits next to your services and AI agents. It evaluates each
-high-risk action against policy, stores tamper-evident evidence, and
-anchors a compact proof to an immutable ledger. Replace per-service
-audit/policy/anchor code with one external surface.
+When an action matters — a refund, a role change, an AI agent invoking a
+tool that costs money or moves data — "the log says so" isn't good
+enough. Teams end up reinventing the same three things in every
+service: a hand-rolled policy check, an audit log nobody fully trusts,
+and a panic-mode incident replay tool that nobody wrote until they
+needed it. Sentinel is one external control plane that handles all
+three. Point your apps and AI agents at it; the high-stakes actions
+become governed, tamper-evident, and replayable for 72 hours, with a
+durable cold archive after that.
+
+## When you'd reach for it
+
+- **Money movement.** Refunds, payouts, ledger writes. You need to
+  prove who triggered what, against which policy, with a hash chain
+  auditors and regulators can verify independently.
+- **AI agent guardrails.** Your agent can call tools that move money,
+  change data, or burn API budget. Sentinel sits in front of the model
+  call, decides whether the action is allowed, and keeps a prompt /
+  response / tool-call trace tied to a ledger receipt. Bypass attempts
+  are rejected at the gateway.
+- **Privileged platform actions.** Schema migrations, IAM changes,
+  secret reads, Kubernetes deploys. One Rego bundle decides who can do
+  what; one rewind query reconstructs the full event chain when
+  something goes sideways.
+- **Compliance-bound systems.** KYC, healthcare, government, anything
+  with HIPAA / SOC 2 / PCI / GDPR pressure. The 72-hour hot index plus
+  the immutable cold archive give you the evidence shape external
+  auditors expect.
+- **Multi-team platforms.** Instead of every service building its own
+  audit / policy / anchor stack, they all speak to one Sentinel. The
+  contract is a single canonical packet schema, with drop-in SDKs in
+  Go, TypeScript, and Python.
+
+Sentinel is *not* a SIEM, a general log aggregator, or an APM. It's the
+layer that enforces and proves policy on a small set of high-stakes
+actions; routine traffic should keep flowing through your existing
+observability stack.
 
 ```mermaid
 flowchart LR
