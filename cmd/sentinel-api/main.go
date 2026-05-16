@@ -3,10 +3,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,12 +82,16 @@ func main() {
 	}
 
 	// ── Ledger ───────────────────────────────────────────────────────────────
-	// For now, use a nil backend (anchor queue logs but doesn't chain-submit).
-	// M4 replaces this with the CometBFT backend.
 	var anchorQueue *ledger.Queue
 	if policyEngine != nil {
 		// Only enable the anchor queue when policy is also available.
-		anchorQueue = ledger.NewQueue(nil, log)
+		backend := buildLedgerBackend(cfg, log)
+		anchorQueue = ledger.NewQueue(backend, log).WithDurableStore(store)
+		leader := postgres.NewAdvisoryLockLeaderElector(store, podIdentity(), log)
+		leader.Start(ctx)
+		defer leader.Close()
+		anchorQueue.WithLeaderElector(leader)
+		go drainAnchorQueue(ctx, anchorQueue)
 	}
 
 	witness, err := ledger.NewWitness()
@@ -101,10 +108,16 @@ func main() {
 	}
 	observability.RegisterHTTPHandlers(mux, readinessChecks)
 
-	// Prometheus metrics stub.
+	// Prometheus metrics.
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("# Sentinel metrics — OTel collector is the primary sink\n"))
+		_, _ = w.Write([]byte("# Sentinel metrics - OTel collector is the primary sink\n"))
+		if anchorQueue != nil {
+			pod, isLeader := anchorQueue.LeaderMetric(r.Context())
+			depth := anchorQueue.PendingDepth(r.Context())
+			fmt.Fprintf(w, "sentinel_anchor_queue_leader{pod=%q} %d\n", pod, isLeader)
+			fmt.Fprintf(w, "sentinel_anchor_queue_depth %d\n", depth)
+		}
 	})
 
 	// Register all v1 API handlers.
@@ -148,5 +161,61 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil {
 		log.Error("http shutdown", zap.Error(err))
+	}
+}
+
+func buildLedgerBackend(cfg *Config, log *zap.Logger) ledger.Backend {
+	if strings.ToLower(cfg.Ledger.Backend) != "cometbft" {
+		return nil
+	}
+	rpc := strings.TrimSpace(os.Getenv("SENTINEL_COMETBFT_RPC"))
+	if rpc == "" {
+		rpc = "http://sentinel-cometbft:26657"
+	}
+	key, err := loadChainKey()
+	if err != nil {
+		log.Warn("chain key unavailable; CometBFT receipts will be unsigned", zap.Error(err))
+	}
+	return ledger.NewCometBFTBackend(rpc, key, log)
+}
+
+func loadChainKey() ([]byte, error) {
+	path := strings.TrimSpace(os.Getenv("SENTINEL_CHAIN_KEY_FILE"))
+	if path == "" {
+		path = "/run/secrets/sentinel_chain_key"
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	s := strings.TrimSpace(string(raw))
+	if decoded, err := hex.DecodeString(strings.TrimPrefix(s, "ed25519:")); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return decoded, nil
+	}
+	return raw, nil
+}
+
+func podIdentity() string {
+	for _, key := range []string{"POD_NAME", "HOSTNAME"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return "sentinel-api"
+}
+
+func drainAnchorQueue(ctx context.Context, queue *ledger.Queue) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			queue.DrainBatch(ctx)
+		}
 	}
 }

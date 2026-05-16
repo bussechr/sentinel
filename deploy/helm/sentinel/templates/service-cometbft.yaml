@@ -1,0 +1,21 @@
+{{- if .Values.cometbft.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sentinel.fullname" . }}-cometbft
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: cometbft
+spec:
+  clusterIP: None
+  selector:
+    {{- include "sentinel.selectorLabels" . | nindent 4 }}
+    component: cometbft
+  ports:
+    - name: rpc
+      port: {{ .Values.cometbft.service.rpcPort }}
+      targetPort: rpc
+    - name: p2p
+      port: {{ .Values.cometbft.service.p2pPort }}
+      targetPort: p2p
+{{- end }}

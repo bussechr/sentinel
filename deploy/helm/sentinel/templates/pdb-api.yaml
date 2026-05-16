@@ -1,0 +1,15 @@
+{{- if .Values.api.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "sentinel.fullname" . }}-api
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: api
+spec:
+  minAvailable: {{ .Values.api.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "sentinel.selectorLabels" . | nindent 6 }}
+      component: api
+{{- end }}

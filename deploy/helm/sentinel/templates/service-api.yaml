@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sentinel.fullname" . }}-api
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  selector:
+    {{- include "sentinel.selectorLabels" . | nindent 4 }}
+    component: api
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http

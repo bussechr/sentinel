@@ -1,0 +1,43 @@
+{{- if .Values.chainApp.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "sentinel.fullname" . }}-chain-app
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: chain-app
+spec:
+  serviceName: {{ include "sentinel.fullname" . }}-chain-app
+  replicas: {{ .Values.chainApp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "sentinel.selectorLabels" . | nindent 6 }}
+      component: chain-app
+  template:
+    metadata:
+      labels:
+        {{- include "sentinel.selectorLabels" . | nindent 8 }}
+        component: chain-app
+    spec:
+      containers:
+        - name: sentinel-chain-app
+          image: "{{ .Values.global.registry }}/sentinel-chain-app:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.chainApp.image.pullPolicy }}
+          ports:
+            - name: abci
+              containerPort: 26658
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/sentinel-chain
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.chainApp.persistence.storageClass }}
+        storageClassName: {{ .Values.chainApp.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.chainApp.persistence.size }}
+{{- end }}

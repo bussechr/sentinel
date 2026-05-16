@@ -1,0 +1,18 @@
+{{- if .Values.chainApp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sentinel.fullname" . }}-chain-app
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: chain-app
+spec:
+  clusterIP: None
+  selector:
+    {{- include "sentinel.selectorLabels" . | nindent 4 }}
+    component: chain-app
+  ports:
+    - name: abci
+      port: 26658
+      targetPort: abci
+{{- end }}

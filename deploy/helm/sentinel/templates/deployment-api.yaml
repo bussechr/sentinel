@@ -33,9 +33,20 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.postgresDSNSecret }}
                   key: dsn
+            - name: SENTINEL_COMETBFT_RPC
+              value: {{ .Values.api.config.cometbftRPC | quote }}
+            - name: SENTINEL_CHAIN_KEY_FILE
+              value: /run/secrets/sentinel_chain_key/key
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: config
               mountPath: /etc/sentinel
+              readOnly: true
+            - name: chain-key
+              mountPath: /run/secrets/sentinel_chain_key
               readOnly: true
           livenessProbe:
             httpGet:
@@ -55,3 +66,6 @@ spec:
         - name: config
           configMap:
             name: {{ include "sentinel.fullname" . }}-config
+        - name: chain-key
+          secret:
+            secretName: {{ .Values.secrets.chainKeySecret }}

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sentinel.fullname" . }}-config
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+data:
+  sentinel.yaml: |
+    sentinel:
+      mode: {{ .Values.api.mode | quote }}
+      environment: {{ .Values.api.config.environment | quote }}
+      evidence_window: {{ .Values.api.config.evidenceWindow | quote }}
+      default_redaction_profile: {{ .Values.api.config.defaultRedactionProfile | quote }}
+    api:
+      listen: {{ .Values.api.config.listen | quote }}
+      mtls_required: {{ .Values.mtls.enabled }}
+    identity:
+      provider: spiffe
+      trust_domain: sentinel.internal
+    policy:
+      engine: opa
+      bundle_url: {{ .Values.api.config.policyBundleURL | quote }}
+      shadow_bundle_url: {{ .Values.api.config.shadowBundleURL | quote }}
+      shadow_bundle_id: {{ .Values.api.config.shadowBundleID | quote }}
+      decision_log: true
+      simulation_enabled: true
+    ledger:
+      backend: {{ .Values.api.config.ledgerBackend | quote }}
+      anchor_strategy: risk_tiered
+      fail_closed_for:
+      {{- range .Values.api.config.failClosedFor }}
+        - {{ . | quote }}
+      {{- end }}
+    storage:
+      postgres_dsn_secret: sentinel_postgres_dsn
+      object_store_bucket: {{ .Values.objectStore.bucket | quote }}
+      local_wal_path: /var/lib/sentinel/wal
+    observability:
+      otel_endpoint: {{ .Values.api.config.otelEndpoint | quote }}
+      metrics_path: /metrics

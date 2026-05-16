@@ -9,13 +9,14 @@ global:
 api:
   replicaCount: 2
   image:
-    repository: "{{ .Values.global.registry }}/sentinel-api"
-    tag: "{{ .Values.global.imageTag }}"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
   mode: guard
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   resources:
     requests:
       cpu: 100m
@@ -24,18 +25,22 @@ api:
       cpu: 500m
       memory: 512Mi
   config:
+    environment: prod
+    listen: 0.0.0.0:8080
     evidenceWindow: 72h
     defaultRedactionProfile: default-prod
     otelEndpoint: otel-collector:4317
     policyBundleURL: http://opa:8181/v1/bundles/sentinel
+    shadowBundleURL: ""
+    shadowBundleID: ""
     ledgerBackend: cometbft
+    cometbftRPC: http://sentinel-cometbft:26657
     failClosedFor: [high, critical]
 
 agent:
   enabled: true
   image:
-    repository: "{{ .Values.global.registry }}/sentinel-agent"
-    tag: "{{ .Values.global.imageTag }}"
+    pullPolicy: IfNotPresent
   resources:
     requests:
       cpu: 50m
@@ -47,10 +52,27 @@ agent:
 chainApp:
   enabled: true
   image:
-    repository: "{{ .Values.global.registry }}/sentinel-chain-app"
-    tag: "{{ .Values.global.imageTag }}"
+    pullPolicy: IfNotPresent
+  replicas: 1
   persistence:
     size: 10Gi
+    storageClass: ""
+
+cometbft:
+  enabled: true
+  replicas: 1
+  image:
+    repository: cometbft/cometbft
+    tag: v0.38.12
+    pullPolicy: IfNotPresent
+  service:
+    rpcPort: 26657
+    p2pPort: 26656
+  validatorKeys:
+    existingSecret: sentinel-validator-keys
+    mountPath: /etc/cometbft/keys
+  persistence:
+    size: 20Gi
     storageClass: ""
 
 opa:
@@ -65,14 +87,31 @@ postgres:
     username: sentinel
     database: sentinel
     existingSecret: sentinel-postgres
+  ha:
+    synchronousReplication: false
+    pitr: false
+    walArchiveBucket: ""
+    snapshotRetentionDays: 7
+
+objectStore:
+  bucket: sentinel-evidence
+  versioning: false
+  objectLock: false
 
 otelCollector:
   enabled: true
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
 
 secrets:
   # Name of an existing Kubernetes secret containing:
   #   dsn: postgres DSN string
   postgresDSNSecret: sentinel-postgres
+  # Name of an existing Kubernetes secret containing:
+  #   key: 64-byte ed25519 private key (raw, hex, or base64)
+  chainKeySecret: sentinel-chain-key
 
 mtls:
   enabled: false  # Enable in production with cert-manager

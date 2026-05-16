@@ -1,0 +1,27 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "sentinel.fullname" . }}-agent
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "sentinel.selectorLabels" . | nindent 6 }}
+      component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "sentinel.selectorLabels" . | nindent 8 }}
+        component: agent
+    spec:
+      serviceAccountName: {{ include "sentinel.fullname" . }}-agent
+      containers:
+        - name: sentinel-agent
+          image: "{{ .Values.global.registry }}/sentinel-agent:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+{{- end }}

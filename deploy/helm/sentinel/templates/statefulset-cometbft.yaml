@@ -1,0 +1,55 @@
+{{- if .Values.cometbft.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "sentinel.fullname" . }}-cometbft
+  labels:
+    {{- include "sentinel.labels" . | nindent 4 }}
+    component: cometbft
+spec:
+  serviceName: {{ include "sentinel.fullname" . }}-cometbft
+  replicas: {{ .Values.cometbft.replicas }}
+  selector:
+    matchLabels:
+      {{- include "sentinel.selectorLabels" . | nindent 6 }}
+      component: cometbft
+  template:
+    metadata:
+      labels:
+        {{- include "sentinel.selectorLabels" . | nindent 8 }}
+        component: cometbft
+    spec:
+      containers:
+        - name: cometbft
+          image: "{{ .Values.cometbft.image.repository }}:{{ .Values.cometbft.image.tag }}"
+          imagePullPolicy: {{ .Values.cometbft.image.pullPolicy }}
+          ports:
+            - name: rpc
+              containerPort: {{ .Values.cometbft.service.rpcPort }}
+            - name: p2p
+              containerPort: {{ .Values.cometbft.service.p2pPort }}
+          env:
+            - name: CMTHOME
+              value: /cometbft
+          volumeMounts:
+            - name: data
+              mountPath: /cometbft
+            - name: validator-keys
+              mountPath: {{ .Values.cometbft.validatorKeys.mountPath }}
+              readOnly: true
+      volumes:
+        - name: validator-keys
+          secret:
+            secretName: {{ .Values.cometbft.validatorKeys.existingSecret }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.cometbft.persistence.storageClass }}
+        storageClassName: {{ .Values.cometbft.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.cometbft.persistence.size }}
+{{- end }}

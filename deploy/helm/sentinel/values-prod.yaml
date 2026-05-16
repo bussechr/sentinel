@@ -1,0 +1,74 @@
+global:
+  registry: ghcr.io/bussechr
+  imageTag: prod
+  namespace: sentinel
+
+api:
+  replicaCount: 3
+  service:
+    type: ClusterIP
+    port: 8080
+  mode: guard
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  config:
+    environment: prod
+    listen: 0.0.0.0:8080
+    evidenceWindow: 72h
+    defaultRedactionProfile: default-prod
+    otelEndpoint: otel-collector:4317
+    policyBundleURL: https://policy-bundles.internal/sentinel/prod/bundle.tar.gz
+    ledgerBackend: cometbft
+    cometbftRPC: http://sentinel-cometbft:26657
+    failClosedFor: [high, critical]
+
+chainApp:
+  enabled: true
+  replicas: 1
+  persistence:
+    size: 50Gi
+    storageClass: gp3
+
+cometbft:
+  enabled: true
+  replicas: 4
+  validatorKeys:
+    existingSecret: sentinel-validator-keys
+    mountPath: /etc/cometbft/keys
+  persistence:
+    size: 100Gi
+    storageClass: gp3
+
+postgres:
+  enabled: false
+  auth:
+    existingSecret: sentinel-postgres
+  ha:
+    synchronousReplication: true
+    pitr: true
+    walArchiveBucket: sentinel-prod-postgres-wal
+    snapshotRetentionDays: 30
+
+objectStore:
+  bucket: sentinel-prod-evidence
+  versioning: true
+  objectLock: true
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+
+secrets:
+  postgresDSNSecret: sentinel-postgres
+  chainKeySecret: sentinel-chain-key
+
+mtls:
+  enabled: true
