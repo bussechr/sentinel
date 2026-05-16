@@ -154,20 +154,30 @@ func (s *Store) QuerySegments(ctx context.Context, appID string, from, to time.T
 
 // PolicyBundle is a row from config_revisions.
 type PolicyBundle struct {
-	RevisionID string    `json:"revision_id"`
-	BundleID   string    `json:"bundle_id"`
-	BundleHash string    `json:"bundle_hash"`
-	BundleURL  string    `json:"bundle_url"`
-	PromotedBy string    `json:"promoted_by"`
-	PromotedAt time.Time `json:"promoted_at"`
-	Active     bool      `json:"active"`
+	RevisionID    string    `json:"revision_id"`
+	BundleID      string    `json:"bundle_id"`
+	BundleHash    string    `json:"bundle_hash"`
+	BundleURL     string    `json:"bundle_url"`
+	PromotedBy    string    `json:"promoted_by"`
+	PromotedAt    time.Time `json:"promoted_at"`
+	Active        bool      `json:"active"`
+	Forced        bool      `json:"forced"`
+	Justification string    `json:"justification,omitempty"`
+}
+
+// PolicyPromotion captures operator metadata for a bundle promotion.
+type PolicyPromotion struct {
+	PromotedBy    string
+	Forced        bool
+	Justification string
 }
 
 // ListPolicyBundles returns all policy bundle revisions.
 func (s *Store) ListPolicyBundles(ctx context.Context) ([]*PolicyBundle, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT revision_id, bundle_id, bundle_hash, bundle_url,
-		       COALESCE(promoted_by,''), promoted_at, active
+		       COALESCE(promoted_by,''), promoted_at, active,
+		       COALESCE(promotion_forced, FALSE), COALESCE(promotion_justification, '')
 		FROM config_revisions ORDER BY promoted_at DESC`)
 	if err != nil {
 		return nil, err
@@ -180,10 +190,70 @@ func (s *Store) ListPolicyBundles(ctx context.Context) ([]*PolicyBundle, error) 
 		if err := rows.Scan(
 			&b.RevisionID, &b.BundleID, &b.BundleHash, &b.BundleURL,
 			&b.PromotedBy, &b.PromotedAt, &b.Active,
+			&b.Forced, &b.Justification,
 		); err != nil {
 			return nil, err
 		}
 		out = append(out, &b)
 	}
 	return out, rows.Err()
+}
+
+// InsertPolicyBundle records an uploaded candidate bundle revision.
+func (s *Store) InsertPolicyBundle(ctx context.Context, b *PolicyBundle) error {
+	if b.RevisionID == "" {
+		b.RevisionID = b.BundleID
+	}
+	if b.PromotedAt.IsZero() {
+		b.PromotedAt = time.Now().UTC()
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO config_revisions (
+		    revision_id, bundle_id, bundle_hash, bundle_url,
+		    promoted_by, promoted_at, active, promotion_forced,
+		    promotion_justification)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (revision_id) DO UPDATE SET
+		    bundle_id = EXCLUDED.bundle_id,
+		    bundle_hash = EXCLUDED.bundle_hash,
+		    bundle_url = EXCLUDED.bundle_url`,
+		b.RevisionID, b.BundleID, b.BundleHash, b.BundleURL,
+		b.PromotedBy, b.PromotedAt, b.Active, b.Forced,
+		nullableString(b.Justification),
+	)
+	return err
+}
+
+// PromotePolicyBundle marks one bundle revision active and deactivates
+// the rest. The API layer handles authorization/audit policy; the store
+// keeps the state transition atomic.
+func (s *Store) PromotePolicyBundle(ctx context.Context, bundleID string, promotion PolicyPromotion) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `UPDATE config_revisions SET active = FALSE WHERE active = TRUE`); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE config_revisions
+		SET active = TRUE,
+		    promoted_by = $2,
+		    promoted_at = now(),
+		    promotion_forced = $3,
+		    promotion_justification = $4
+		WHERE bundle_id = $1 OR revision_id = $1`,
+		bundleID,
+		promotion.PromotedBy,
+		promotion.Forced,
+		nullableString(promotion.Justification),
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("policy bundle %q not found", bundleID)
+	}
+	return tx.Commit(ctx)
 }

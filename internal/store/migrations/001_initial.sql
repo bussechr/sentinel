@@ -164,7 +164,9 @@ CREATE TABLE IF NOT EXISTS config_revisions (
     bundle_url    TEXT        NOT NULL,
     promoted_by   TEXT,
     promoted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    active        BOOLEAN     NOT NULL DEFAULT TRUE
+    active        BOOLEAN     NOT NULL DEFAULT TRUE,
+    promotion_forced BOOLEAN  NOT NULL DEFAULT FALSE,
+    promotion_justification TEXT
 );
 
 COMMIT;

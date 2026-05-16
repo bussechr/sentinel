@@ -24,9 +24,14 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -111,6 +116,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/evidence/causal/", h.CausalGraph)
 
 	mux.HandleFunc("/v1/policy/bundles", h.ListBundles)
+	mux.HandleFunc("/v1/policy/bundles/", h.PromoteBundle)
 	mux.HandleFunc("/v1/policy/simulate", h.SimulatePolicy)
 	mux.HandleFunc("/v1/policy/shadow/divergences", h.ShadowDivergences)
 }
@@ -321,8 +327,9 @@ func (h *Handler) AuthorizePacket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Evaluate policy. If a shadow engine is registered, run both bundles
-	// in parallel and persist the divergence record.
-	decision, err := h.evaluateWithShadow(r, p)
+	// in parallel. Persist the divergence after the packet row exists so
+	// the shadow_decisions foreign key is always satisfiable.
+	decision, shadowRecord, err := h.evaluateWithShadow(r, p)
 	if err != nil {
 		if h.mode != core.ModeObserve && isFailClosed(p.Action.Risk) {
 			apiError(w, http.StatusServiceUnavailable, "policy unavailable; action fail-closed")
@@ -345,6 +352,10 @@ func (h *Handler) AuthorizePacket(w http.ResponseWriter, r *http.Request) {
 	if h.store != nil {
 		if err := h.store.InsertPacket(r.Context(), p); err != nil {
 			h.log.Error("insert authorize packet", zap.Error(err))
+		} else if shadowRecord != nil {
+			if err := h.store.InsertShadowDecision(r.Context(), shadowRecord); err != nil {
+				h.log.Warn("shadow: persist divergence", zap.Error(err))
+			}
 		}
 	}
 
@@ -678,12 +689,115 @@ func (h *Handler) RewindEvidence(w http.ResponseWriter, r *http.Request) {
 
 // ListBundles handles GET /v1/policy/bundles.
 func (h *Handler) ListBundles(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.UploadBundle(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	bundles, err := h.store.ListPolicyBundles(r.Context())
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"bundles": bundles})
+}
+
+// UploadBundle handles POST /v1/policy/bundles.
+func (h *Handler) UploadBundle(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		apiError(w, http.StatusServiceUnavailable, "store not configured")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(body) == 0 {
+		apiError(w, http.StatusBadRequest, "bundle body is required")
+		return
+	}
+	sum := sha256.Sum256(body)
+	bundleID := fmt.Sprintf("bundle_%x", sum[:8])
+	dir := os.Getenv("SENTINEL_POLICY_UPLOAD_DIR")
+	if dir == "" {
+		dir = "/tmp/sentinel-policy-bundles"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	path := filepath.Join(dir, bundleID+".tar.gz")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	url := "file://" + path
+	if err := h.store.InsertPolicyBundle(r.Context(), &pgstore.PolicyBundle{
+		RevisionID: bundleID,
+		BundleID:   bundleID,
+		BundleHash: fmt.Sprintf("sha256:%x", sum[:]),
+		BundleURL:  url,
+		PromotedBy: "",
+		PromotedAt: time.Now().UTC(),
+		Active:     false,
+	}); err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"bundle_id":   bundleID,
+		"bundle_hash": fmt.Sprintf("sha256:%x", sum[:]),
+		"bundle_url":  url,
+	})
+}
+
+// PromoteBundle handles POST /v1/policy/bundles/{bundle_id}/promote.
+func (h *Handler) PromoteBundle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if h.store == nil {
+		apiError(w, http.StatusServiceUnavailable, "store not configured")
+		return
+	}
+	suffix := strings.Trim(pathSuffix(r, "/v1/policy/bundles/"), "/")
+	bundleID := strings.TrimSuffix(suffix, "/promote")
+	if bundleID == "" || bundleID == suffix {
+		apiError(w, http.StatusNotFound, "expected /v1/policy/bundles/{bundle_id}/promote")
+		return
+	}
+	var req struct {
+		Forced        bool   `json:"forced"`
+		Justification string `json:"justification"`
+		PromotedBy    string `json:"promoted_by"`
+	}
+	_ = readJSON(r, &req)
+	if req.Forced && strings.TrimSpace(req.Justification) == "" {
+		apiError(w, http.StatusBadRequest, "forced promotion requires justification")
+		return
+	}
+	if req.PromotedBy == "" {
+		req.PromotedBy = "sentinel-api"
+	}
+	if err := h.store.PromotePolicyBundle(r.Context(), bundleID, pgstore.PolicyPromotion{
+		PromotedBy:    req.PromotedBy,
+		Forced:        req.Forced,
+		Justification: req.Justification,
+	}); err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"bundle_id":     bundleID,
+		"promoted":      true,
+		"forced":        req.Forced,
+		"justification": req.Justification,
+	})
 }
 
 // SimulatePolicy handles POST /v1/policy/simulate.
@@ -729,10 +843,12 @@ func (h *Handler) evaluatePolicy(r *http.Request, p *core.Packet) (*policy.Evalu
 }
 
 // evaluateWithShadow runs the active engine and, when a shadow is wired,
-// the candidate engine in parallel. Divergence is persisted asynchronously.
-func (h *Handler) evaluateWithShadow(r *http.Request, p *core.Packet) (*policy.EvaluateResult, error) {
+// the candidate engine in parallel. It returns the divergence record to
+// persist after the packet row exists.
+func (h *Handler) evaluateWithShadow(r *http.Request, p *core.Packet) (*policy.EvaluateResult, *policy.ShadowDecisionRecord, error) {
 	if h.shadow == nil {
-		return h.evaluatePolicy(r, p)
+		result, err := h.evaluatePolicy(r, p)
+		return result, nil, err
 	}
 	app, _ := h.store.GetApp(r.Context(), p.App.AppID)
 	res, err := h.shadow.Evaluate(r.Context(), &policy.EvaluateInput{
@@ -741,18 +857,13 @@ func (h *Handler) evaluateWithShadow(r *http.Request, p *core.Packet) (*policy.E
 		Mode:   h.mode,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	// Persist the divergence; never fail the request on logging.
+	var rec *policy.ShadowDecisionRecord
 	if h.store != nil && res.Candidate != nil {
-		go func() {
-			rec := res.ToRecord(p.PacketID, p.CorrelationID)
-			if err := h.store.InsertShadowDecision(r.Context(), rec); err != nil {
-				h.log.Warn("shadow: persist divergence", zap.Error(err))
-			}
-		}()
+		rec = res.ToRecord(p.PacketID, p.CorrelationID, p.Action.Name)
 	}
-	return res.Active, nil
+	return res.Active, rec, nil
 }
 
 // CausalGraph handles GET /v1/evidence/causal/{correlation_id}.
@@ -853,8 +964,9 @@ func (h *Handler) ShadowDivergences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"since": since,
-		"rows":  rows,
+		"since":       since,
+		"rows":        rows,
+		"divergences": rows,
 	})
 }
 

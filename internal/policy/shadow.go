@@ -159,6 +159,7 @@ type ShadowDecisionRecord struct {
 	CorrelationID     string        `json:"correlation_id" db:"correlation_id"`
 	ActiveBundleID    string        `json:"active_bundle_id" db:"active_bundle_id"`
 	CandidateBundleID string        `json:"candidate_bundle_id" db:"candidate_bundle_id"`
+	ActionClass       string        `json:"action_class" db:"action_class"`
 	ActiveDecision    core.Decision `json:"active_decision" db:"active_decision"`
 	CandidateDecision core.Decision `json:"candidate_decision" db:"candidate_decision"`
 	Diverged          bool          `json:"diverged" db:"diverged"`
@@ -169,13 +170,14 @@ type ShadowDecisionRecord struct {
 
 // ToRecord converts a ShadowResult into a persistable record using the
 // supplied packet identifiers.
-func (r *ShadowResult) ToRecord(packetID, correlationID string) *ShadowDecisionRecord {
+func (r *ShadowResult) ToRecord(packetID, correlationID, actionClass string) *ShadowDecisionRecord {
 	rec := &ShadowDecisionRecord{
 		ShadowID:          r.ShadowID,
 		PacketID:          packetID,
 		CorrelationID:     correlationID,
 		ActiveBundleID:    r.ActiveBundleID,
 		CandidateBundleID: r.CandidateBundleID,
+		ActionClass:       actionClass,
 		Diverged:          r.Diverged,
 		EvaluatedAt:       r.EvaluatedAt,
 	}

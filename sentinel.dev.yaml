@@ -15,6 +15,8 @@ identity:
 policy:
   engine: opa
   bundle_url: file:///policy/bundles/default
+  shadow_bundle_url: file:///policy/bundles/yieldguard
+  shadow_bundle_id: yieldguard-dev-candidate
   decision_log: true
   simulation_enabled: true
 

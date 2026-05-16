@@ -18,13 +18,13 @@ func (s *Store) InsertShadowDecision(ctx context.Context, rec *policy.ShadowDeci
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO shadow_decisions (
 		    shadow_id, packet_id, correlation_id,
-		    active_bundle_id, candidate_bundle_id,
+		    active_bundle_id, candidate_bundle_id, action_class,
 		    active_decision, candidate_decision, diverged,
 		    active_reason, candidate_reason, evaluated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (shadow_id) DO NOTHING`,
 		rec.ShadowID, rec.PacketID, rec.CorrelationID,
-		rec.ActiveBundleID, rec.CandidateBundleID,
+		rec.ActiveBundleID, rec.CandidateBundleID, rec.ActionClass,
 		string(rec.ActiveDecision), string(rec.CandidateDecision), rec.Diverged,
 		rec.ActiveReason, rec.CandidateReason, rec.EvaluatedAt,
 	)
@@ -39,7 +39,7 @@ func (s *Store) ListShadowDivergences(ctx context.Context, since time.Time, limi
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT shadow_id, packet_id, correlation_id,
-		       active_bundle_id, candidate_bundle_id,
+		       active_bundle_id, candidate_bundle_id, COALESCE(action_class,''),
 		       active_decision, candidate_decision, diverged,
 		       COALESCE(active_reason,''), COALESCE(candidate_reason,''), evaluated_at
 		FROM shadow_decisions
@@ -58,6 +58,7 @@ func (s *Store) ListShadowDivergences(ctx context.Context, since time.Time, limi
 		if err := rows.Scan(
 			&r.ShadowID, &r.PacketID, &r.CorrelationID,
 			&r.ActiveBundleID, &r.CandidateBundleID,
+			&r.ActionClass,
 			&actDec, &candDec, &r.Diverged,
 			&r.ActiveReason, &r.CandidateReason, &r.EvaluatedAt,
 		); err != nil {

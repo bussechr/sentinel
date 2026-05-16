@@ -32,6 +32,8 @@ type Config struct {
 	Policy struct {
 		Engine            string `yaml:"engine"`
 		BundleURL         string `yaml:"bundle_url"`
+		ShadowBundleURL   string `yaml:"shadow_bundle_url"`
+		ShadowBundleID    string `yaml:"shadow_bundle_id"`
 		DecisionLog       bool   `yaml:"decision_log"`
 		SimulationEnabled bool   `yaml:"simulation_enabled"`
 	} `yaml:"policy"`

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS shadow_decisions (
     shadow_id          TEXT        PRIMARY KEY,
     packet_id          TEXT        NOT NULL REFERENCES packets(packet_id),
     correlation_id     TEXT        NOT NULL,
+    action_class       TEXT,
     active_bundle_id   TEXT        NOT NULL,
     candidate_bundle_id TEXT       NOT NULL,
     active_decision    TEXT        NOT NULL,
@@ -31,9 +32,17 @@ CREATE TABLE IF NOT EXISTS shadow_decisions (
     evaluated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE shadow_decisions ADD COLUMN IF NOT EXISTS action_class TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_shadow_correlation ON shadow_decisions (correlation_id);
 CREATE INDEX IF NOT EXISTS idx_shadow_diverged    ON shadow_decisions (diverged);
 CREATE INDEX IF NOT EXISTS idx_shadow_evaluated   ON shadow_decisions (evaluated_at DESC);
+
+-- ───────────────────────────────────────────────
+-- Policy promotion audit metadata
+-- ───────────────────────────────────────────────
+ALTER TABLE config_revisions ADD COLUMN IF NOT EXISTS promotion_forced BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE config_revisions ADD COLUMN IF NOT EXISTS promotion_justification TEXT;
 
 -- ───────────────────────────────────────────────
 -- Cold archive index — pointers to evidence retired past the 72h window

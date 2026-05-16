@@ -22,9 +22,12 @@ func TestShadowResult_ToRecord(t *testing.T) {
 		},
 		Diverged: true,
 	}
-	rec := res.ToRecord("pkt_x", "corr_x")
+	rec := res.ToRecord("pkt_x", "corr_x", "route.dispatch")
 	if rec.PacketID != "pkt_x" || rec.CorrelationID != "corr_x" {
 		t.Errorf("packet/correlation not propagated: %+v", rec)
+	}
+	if rec.ActionClass != "route.dispatch" {
+		t.Errorf("action class not propagated: %+v", rec)
 	}
 	if rec.ActiveDecision != core.DecisionAllow {
 		t.Errorf("active decision wrong: %v", rec.ActiveDecision)

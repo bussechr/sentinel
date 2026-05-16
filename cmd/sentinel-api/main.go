@@ -113,6 +113,14 @@ func main() {
 		mode = core.ModeObserve
 	}
 	apiHandler := api.NewHandler(store, policyEngine, anchorQueue, witness, mode, log)
+	if policyEngine != nil && cfg.Policy.ShadowBundleURL != "" {
+		apiHandler.WithShadow(policy.NewShadow(
+			policyEngine,
+			cfg.Policy.ShadowBundleURL,
+			cfg.Policy.ShadowBundleID,
+			log,
+		))
+	}
 	apiHandler.Register(mux)
 
 	srv := &http.Server{
