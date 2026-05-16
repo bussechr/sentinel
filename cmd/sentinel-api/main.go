@@ -83,9 +83,17 @@ func main() {
 
 	// ── Ledger ───────────────────────────────────────────────────────────────
 	var anchorQueue *ledger.Queue
+	writerRegistry := ledger.NewRegistry()
 	if policyEngine != nil {
 		// Only enable the anchor queue when policy is also available.
 		backend := buildLedgerBackend(cfg, log)
+		if backend != nil {
+			if w, ok := backend.(ledger.Writer); ok {
+				writerRegistry.Register(w)
+			} else {
+				writerRegistry.Register(ledger.AsWriter(ledger.WriterCometBFT, "cometbft-default", backend))
+			}
+		}
 		anchorQueue = ledger.NewQueue(backend, log).WithDurableStore(store)
 		leader := postgres.NewAdvisoryLockLeaderElector(store, podIdentity(), log)
 		leader.Start(ctx)
@@ -118,6 +126,14 @@ func main() {
 			fmt.Fprintf(w, "sentinel_anchor_queue_leader{pod=%q} %d\n", pod, isLeader)
 			fmt.Fprintf(w, "sentinel_anchor_queue_depth %d\n", depth)
 		}
+		for _, h := range writerRegistry.HealthAll(r.Context()) {
+			healthy := 0
+			if h.Healthy {
+				healthy = 1
+			}
+			fmt.Fprintf(w, "sentinel_writer_healthy{kind=%q,name=%q} %d\n", h.Kind, h.Name, healthy)
+			fmt.Fprintf(w, "sentinel_writer_height{kind=%q,name=%q} %d\n", h.Kind, h.Name, h.Height)
+		}
 	})
 
 	// Register all v1 API handlers.
@@ -126,6 +142,7 @@ func main() {
 		mode = core.ModeObserve
 	}
 	apiHandler := api.NewHandler(store, policyEngine, anchorQueue, witness, mode, log)
+	apiHandler.WithWriterRegistry(writerRegistry)
 	if policyEngine != nil && cfg.Policy.ShadowBundleURL != "" {
 		apiHandler.WithShadow(policy.NewShadow(
 			policyEngine,
