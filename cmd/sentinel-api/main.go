@@ -17,9 +17,11 @@ import (
 
 	"github.com/your-org/sentinel/internal/api"
 	"github.com/your-org/sentinel/internal/core"
+	"github.com/your-org/sentinel/internal/evidence"
 	"github.com/your-org/sentinel/internal/ledger"
 	"github.com/your-org/sentinel/internal/observability"
 	"github.com/your-org/sentinel/internal/policy"
+	"github.com/your-org/sentinel/internal/store/object"
 	"github.com/your-org/sentinel/internal/store/postgres"
 )
 
@@ -57,6 +59,11 @@ func main() {
 		log.Fatal("postgres init", zap.Error(err))
 	}
 	defer store.Close()
+
+	objectStore, err := buildObjectStore(cfg, log)
+	if err != nil {
+		log.Warn("object store init failed; cold archive disabled", zap.Error(err))
+	}
 
 	// ── OTel ─────────────────────────────────────────────────────────────────
 	if cfg.Observability.OTLPEndpoint != "" {
@@ -101,6 +108,9 @@ func main() {
 		anchorQueue.WithLeaderElector(leader)
 		go drainAnchorQueue(ctx, anchorQueue)
 	}
+	if objectStore != nil && cfg.Storage.ObjectStoreBucket != "" {
+		go runArchiver(ctx, store, objectStore, cfg.Storage.ObjectStoreBucket, log)
+	}
 
 	witness, err := ledger.NewWitness()
 	if err != nil {
@@ -109,6 +119,21 @@ func main() {
 
 	// ── HTTP mux ─────────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
+	mode := core.SentinelMode(cfg.Sentinel.Mode)
+	if mode == "" {
+		mode = core.ModeObserve
+	}
+	apiHandler := api.NewHandler(store, policyEngine, anchorQueue, witness, mode, log)
+	apiHandler.WithWriterRegistry(writerRegistry)
+	apiHandler.WithObjectStore(objectStore)
+	if policyEngine != nil && cfg.Policy.ShadowBundleURL != "" {
+		apiHandler.WithShadow(policy.NewShadow(
+			policyEngine,
+			cfg.Policy.ShadowBundleURL,
+			cfg.Policy.ShadowBundleID,
+			log,
+		))
+	}
 
 	// Health & readiness probes.
 	readinessChecks := []observability.ReadinessCheck{
@@ -134,23 +159,12 @@ func main() {
 			fmt.Fprintf(w, "sentinel_writer_healthy{kind=%q,name=%q} %d\n", h.Kind, h.Name, healthy)
 			fmt.Fprintf(w, "sentinel_writer_height{kind=%q,name=%q} %d\n", h.Kind, h.Name, h.Height)
 		}
+		coldHits, coldLatency := apiHandler.ColdArchiveMetrics()
+		fmt.Fprintf(w, "sentinel_evidence_cold_hits_total %d\n", coldHits)
+		fmt.Fprintf(w, "sentinel_evidence_cold_lookup_latency_seconds %f\n", coldLatency)
 	})
 
 	// Register all v1 API handlers.
-	mode := core.SentinelMode(cfg.Sentinel.Mode)
-	if mode == "" {
-		mode = core.ModeObserve
-	}
-	apiHandler := api.NewHandler(store, policyEngine, anchorQueue, witness, mode, log)
-	apiHandler.WithWriterRegistry(writerRegistry)
-	if policyEngine != nil && cfg.Policy.ShadowBundleURL != "" {
-		apiHandler.WithShadow(policy.NewShadow(
-			policyEngine,
-			cfg.Policy.ShadowBundleURL,
-			cfg.Policy.ShadowBundleID,
-			log,
-		))
-	}
 	apiHandler.Register(mux)
 
 	srv := &http.Server{
@@ -179,6 +193,33 @@ func main() {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		log.Error("http shutdown", zap.Error(err))
 	}
+}
+
+func buildObjectStore(cfg *Config, log *zap.Logger) (object.Store, error) {
+	endpoint := strings.TrimSpace(os.Getenv("SENTINEL_OBJECT_STORE_ENDPOINT"))
+	if endpoint == "" {
+		log.Info("object store endpoint not configured; cold archive reads disabled")
+		return nil, nil
+	}
+	useSSL := strings.EqualFold(os.Getenv("SENTINEL_OBJECT_STORE_SSL"), "true")
+	insecureTLS := strings.EqualFold(os.Getenv("SENTINEL_OBJECT_STORE_INSECURE_TLS"), "true")
+	store, err := object.NewMinio(object.MinioConfig{
+		Endpoint:        endpoint,
+		AccessKeyID:     os.Getenv("SENTINEL_OBJECT_STORE_ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv("SENTINEL_OBJECT_STORE_SECRET_ACCESS_KEY"),
+		UseSSL:          useSSL,
+		Region:          os.Getenv("SENTINEL_OBJECT_STORE_REGION"),
+		InsecureTLS:     insecureTLS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(os.Getenv("SENTINEL_OBJECT_STORE_CREATE_BUCKET"), "true") {
+		if err := store.EnsureBucket(context.Background(), cfg.Storage.ObjectStoreBucket, os.Getenv("SENTINEL_OBJECT_STORE_REGION")); err != nil {
+			return nil, err
+		}
+	}
+	return store, nil
 }
 
 func buildLedgerBackend(cfg *Config, log *zap.Logger) ledger.Backend {
@@ -233,6 +274,28 @@ func drainAnchorQueue(ctx context.Context, queue *ledger.Queue) {
 			return
 		case <-ticker.C:
 			queue.DrainBatch(ctx)
+		}
+	}
+}
+
+func runArchiver(ctx context.Context, store *postgres.Store, objectStore object.Store, bucket string, log *zap.Logger) {
+	archiver := evidence.NewArchiver(
+		store,
+		evidence.NewObjectStoreSink(objectStore, bucket),
+		store,
+		evidence.DefaultWindowDuration,
+		log,
+	)
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if _, err := archiver.Run(ctx, 50); err != nil && ctx.Err() == nil {
+			log.Warn("cold archive run failed", zap.Error(err))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

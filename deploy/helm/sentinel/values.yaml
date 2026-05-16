@@ -94,9 +94,9 @@ postgres:
     snapshotRetentionDays: 7
 
 objectStore:
-  bucket: sentinel-evidence
-  versioning: false
-  objectLock: false
+  bucket: kyb-sentinel-cold-dev
+  versioning: true
+  objectLock: true
 
 otelCollector:
   enabled: true

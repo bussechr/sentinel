@@ -28,7 +28,7 @@ ledger:
 
 storage:
   postgres_dsn_secret: sentinel_postgres_dsn
-  object_store_bucket: sentinel-evidence
+  object_store_bucket: kyb-sentinel-cold-dev
   local_wal_path: /var/lib/sentinel/wal
 
 capture:

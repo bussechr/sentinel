@@ -134,7 +134,13 @@ func (a *Archiver) archiveOne(ctx context.Context, correlationID string) error {
 	}
 
 	archiveID := "arc_" + uuid.New().String()
-	key := fmt.Sprintf("cold/%s/%s.json", correlationID, archiveID)
+	archiveDate := hot.Packets[0].CapturedAt.UTC()
+	key := fmt.Sprintf("sentinel/%04d/%02d/%02d/%s/manifest.json",
+		archiveDate.Year(),
+		archiveDate.Month(),
+		archiveDate.Day(),
+		correlationID,
+	)
 	uri, err := a.sink.PutManifest(ctx, key, body)
 	if err != nil {
 		return fmt.Errorf("put manifest: %w", err)

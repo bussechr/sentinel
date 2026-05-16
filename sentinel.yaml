@@ -29,7 +29,7 @@ storage:
   # DSN is read from the SENTINEL_POSTGRES_DSN environment variable or secret mount.
   # Never put the DSN in this file.
   postgres_dsn_secret: sentinel_postgres_dsn
-  object_store_bucket: sentinel-evidence
+  object_store_bucket: kyb-sentinel-cold-prod
   local_wal_path: /var/lib/sentinel/wal
 
 capture:

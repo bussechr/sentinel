@@ -126,6 +126,33 @@ func TestQueryWindow_TooWide(t *testing.T) {
 	}
 }
 
+func TestRewindEvidence_EmptyHotWithoutColdIndexReturnsOK(t *testing.T) {
+	h := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/evidence/rewind/corr_missing", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for no hot evidence and no cold index, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		CorrelationID  string `json:"correlation_id"`
+		ArchiveLocator string `json:"archive_locator"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.CorrelationID != "corr_missing" {
+		t.Fatalf("correlation_id = %q", resp.CorrelationID)
+	}
+	if resp.ArchiveLocator != "" {
+		t.Fatalf("archive_locator = %q, want empty", resp.ArchiveLocator)
+	}
+}
+
 func TestAuthorizeAI_RejectsMissingRouteHeader(t *testing.T) {
 	h := newTestHandler(t)
 	mux := http.NewServeMux()

@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,21 +43,25 @@ import (
 	"github.com/your-org/sentinel/internal/evidence"
 	"github.com/your-org/sentinel/internal/ledger"
 	"github.com/your-org/sentinel/internal/policy"
+	"github.com/your-org/sentinel/internal/store/object"
 	pgstore "github.com/your-org/sentinel/internal/store/postgres"
 	"go.uber.org/zap"
 )
 
 // Handler holds the dependencies shared across all API handlers.
 type Handler struct {
-	store   *pgstore.Store
-	policy  *policy.Engine
-	shadow  *policy.Shadow
-	queue   *ledger.Queue
-	writers *ledger.Registry
-	witness *ledger.Witness
-	aiGate  *ailane.Gate
-	mode    core.SentinelMode
-	log     *zap.Logger
+	store            *pgstore.Store
+	policy           *policy.Engine
+	shadow           *policy.Shadow
+	queue            *ledger.Queue
+	writers          *ledger.Registry
+	objects          object.Store
+	coldHits         atomic.Uint64
+	coldLatencyNanos atomic.Uint64
+	witness          *ledger.Witness
+	aiGate           *ailane.Gate
+	mode             core.SentinelMode
+	log              *zap.Logger
 }
 
 // NewHandler creates the API handler bundle.
@@ -91,6 +96,12 @@ func (h *Handler) WithShadow(s *policy.Shadow) *Handler {
 // /v1/ledger/writers endpoint surfaces health for every writer.
 func (h *Handler) WithWriterRegistry(r *ledger.Registry) *Handler {
 	h.writers = r
+	return h
+}
+
+// WithObjectStore attaches the cold archive object store used by rewind.
+func (h *Handler) WithObjectStore(s object.Store) *Handler {
+	h.objects = s
 	return h
 }
 
@@ -677,12 +688,81 @@ func (h *Handler) RewindEvidence(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := evidence.Rewind(r.Context(), h.store, corrID, window, false)
-	if err != nil {
-		apiError(w, http.StatusBadRequest, err.Error())
-		return
+	result := &evidence.RewindResult{
+		CorrelationID: corrID,
+		WindowUsed:    window,
+	}
+	if h.store != nil {
+		var err error
+		result, err = evidence.Rewind(r.Context(), h.store, corrID, window, false)
+		if err != nil {
+			apiError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if len(result.Packets) == 0 {
+		if cold, err := h.rewindCold(r, corrID, window); err == nil {
+			writeJSON(w, http.StatusOK, cold)
+			return
+		} else if isColdArchiveUnavailable(err) {
+			apiError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) rewindCold(r *http.Request, corrID string, window time.Duration) (*evidence.RewindResult, error) {
+	if h.store == nil {
+		return nil, fmt.Errorf("cold_archive_not_found")
+	}
+	archives, err := h.store.LookupColdArchives(r.Context(), corrID)
+	if err != nil {
+		return nil, fmt.Errorf("cold_archive_unavailable: %w", err)
+	}
+	if len(archives) == 0 {
+		return nil, fmt.Errorf("cold_archive_not_found")
+	}
+	if h.objects == nil {
+		return nil, fmt.Errorf("cold_archive_unavailable: object store not configured")
+	}
+	start := time.Now()
+	result := &evidence.RewindResult{
+		CorrelationID:  corrID,
+		WindowUsed:     window,
+		ArchiveLocator: archives[0].ObjectURI,
+	}
+	for _, archive := range archives {
+		rc, err := h.objects.Get(r.Context(), archive.ObjectURI)
+		if err != nil {
+			return nil, fmt.Errorf("cold_archive_unavailable: %w", err)
+		}
+		var hot evidence.HotEvidence
+		err = json.NewDecoder(rc).Decode(&hot)
+		_ = rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("cold_archive_unavailable: decode manifest: %w", err)
+		}
+		result.Packets = append(result.Packets, hot.Packets...)
+		result.Decisions = append(result.Decisions, hot.Decisions...)
+		result.Receipts = append(result.Receipts, hot.Receipts...)
+		result.Segments = append(result.Segments, hot.Segments...)
+	}
+	h.coldHits.Add(1)
+	h.coldLatencyNanos.Store(uint64(time.Since(start)))
+	return result, nil
+}
+
+func isColdArchiveUnavailable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "cold_archive_unavailable")
+}
+
+// ColdArchiveMetrics returns Prometheus gauge/counter values for cold rewind.
+func (h *Handler) ColdArchiveMetrics() (hits uint64, lastLatencySeconds float64) {
+	if h == nil {
+		return 0, 0
+	}
+	return h.coldHits.Load(), float64(h.coldLatencyNanos.Load()) / float64(time.Second)
 }
 
 // ─── Policy ───────────────────────────────────────────────────────────────────

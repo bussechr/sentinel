@@ -73,7 +73,7 @@ func defaultConfig() *Config {
 	cfg.Ledger.Backend = "cometbft"
 	cfg.Ledger.AnchorStrategy = "risk_tiered"
 	cfg.Ledger.FailClosedFor = []string{"high", "critical"}
-	cfg.Storage.ObjectStoreBucket = "sentinel-evidence"
+	cfg.Storage.ObjectStoreBucket = "kyb-sentinel-cold-dev"
 	cfg.Storage.LocalWALPath = "/var/lib/sentinel/wal"
 	cfg.Observability.OTLPEndpoint = "otel-collector:4317"
 	cfg.Observability.MetricsPath = "/metrics"

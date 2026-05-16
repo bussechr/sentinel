@@ -1,10 +1,14 @@
 package evidence_test
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/your-org/sentinel/internal/core"
 	"github.com/your-org/sentinel/internal/evidence"
+	"go.uber.org/zap"
 )
 
 func TestNewSegment_Hash(t *testing.T) {
@@ -58,4 +62,64 @@ func TestRewind_ExportModeAllowsWiderWindow(t *testing.T) {
 	// A nil-store call produces a nil pointer panic; accept that for now.
 	// In production, the store is always non-nil.
 	_ = err
+}
+
+func TestArchiverUsesSentinelColdArchiveLayout(t *testing.T) {
+	capturedAt := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	source := &fakeArchiveSource{hot: &evidence.HotEvidence{
+		Packets: []*core.Packet{{
+			PacketID:      "pkt1",
+			CorrelationID: "corr1",
+			CapturedAt:    capturedAt,
+			App:           core.AppContext{AppID: "app1"},
+		}},
+	}}
+	sink := &fakeArchiveSink{}
+	index := &fakeArchiveIndex{}
+	archiver := evidence.NewArchiver(source, sink, index, 72*time.Hour, zap.NewNop())
+
+	archived, err := archiver.Run(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if archived != 1 {
+		t.Fatalf("archived = %d", archived)
+	}
+	want := "sentinel/2026/05/14/corr1/manifest.json"
+	if sink.key != want {
+		t.Fatalf("archive key = %q want %q", sink.key, want)
+	}
+	if index.record == nil || !strings.Contains(index.record.ObjectURI, want) {
+		t.Fatalf("archive index not recorded with object uri: %+v", index.record)
+	}
+}
+
+type fakeArchiveSource struct {
+	hot *evidence.HotEvidence
+}
+
+func (s *fakeArchiveSource) CorrelationIDsBefore(context.Context, time.Time, int) ([]string, error) {
+	return []string{"corr1"}, nil
+}
+
+func (s *fakeArchiveSource) HotEvidence(context.Context, string) (*evidence.HotEvidence, error) {
+	return s.hot, nil
+}
+
+type fakeArchiveSink struct {
+	key string
+}
+
+func (s *fakeArchiveSink) PutManifest(_ context.Context, key string, _ []byte) (string, error) {
+	s.key = key
+	return "s3://kyb-sentinel-cold-prod/" + key, nil
+}
+
+type fakeArchiveIndex struct {
+	record *evidence.ArchiveRecord
+}
+
+func (i *fakeArchiveIndex) RecordArchive(_ context.Context, rec *evidence.ArchiveRecord) error {
+	i.record = rec
+	return nil
 }
